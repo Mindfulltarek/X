@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="X AI">
+  <defs>
+    <linearGradient id="ring" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8FC6FF"/><stop offset="0.45" stop-color="#3B7BFF"/><stop offset="1" stop-color="#28D7F2"/>
+    </linearGradient>
+    <linearGradient id="x" x1="17" y1="15" x2="47" y2="49" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#BFE3FF"/><stop offset="0.4" stop-color="#6AA1FF"/><stop offset="1" stop-color="#28D7F2"/>
+    </linearGradient>
+    <radialGradient id="bg" cx="32" cy="24" r="38" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0b1b3d"/><stop offset="1" stop-color="#030b1e"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="17" fill="url(#bg)"/>
+  <rect x="2.6" y="2.6" width="58.8" height="58.8" rx="15.4" fill="none" stroke="url(#ring)" stroke-width="2.6"/>
+  <path d="M18.5 17 L45.5 47" stroke="url(#x)" stroke-width="8" stroke-linecap="round"/>
+  <path d="M45.5 17 L18.5 47" stroke="url(#x)" stroke-width="8" stroke-linecap="round"/>
+  <path d="M50.8 10 c.36 2.3 1.14 3.08 3.44 3.44 -2.3.36-3.08 1.14-3.44 3.44 -.36-2.3-1.14-3.08-3.44-3.44 2.3-.36 3.08-1.14 3.44-3.44Z" fill="#DFF4FF" opacity="0.95"/>
+  <path d="M12.2 44.6 c.28 1.8.9 2.42 2.7 2.7 -1.8.28-2.42.9-2.7 2.7 -.28-1.8-.9-2.42-2.7-2.7 1.8-.28 2.42-.9 2.7-2.7Z" fill="#BFEFFF" opacity="0.85"/>
+</svg>
