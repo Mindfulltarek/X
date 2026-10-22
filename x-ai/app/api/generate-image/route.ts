@@ -110,6 +110,7 @@ export async function POST(req: Request) {
       model: result.model,
       images: result.images,
       tookMs: Date.now() - started,
+      warnings: result.warnings,
     };
     logServerEvent({
       requestId,
@@ -130,6 +131,6 @@ export async function POST(req: Request) {
       durationMs: Date.now() - started,
       detail: apiErr.details,
     });
-    return NextResponse.json(errorBody(apiErr), { status: apiErr.status });
+    return NextResponse.json({ ...errorBody(apiErr), details: apiErr.details }, { status: apiErr.status });
   }
 }

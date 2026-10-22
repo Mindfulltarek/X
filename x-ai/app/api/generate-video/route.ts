@@ -76,7 +76,7 @@ export async function GET(req: Request) {
     });
   } catch (err) {
     const apiErr = err instanceof ApiError ? err : apiError("internal");
-    return NextResponse.json(errorBody(apiErr), { status: apiErr.status });
+    return NextResponse.json({ ...errorBody(apiErr), details: apiErr.details }, { status: apiErr.status });
   }
 }
 
@@ -131,6 +131,7 @@ export async function POST(req: Request) {
       backend: status.backend,
       provider: result.provider,
       providerLabel: result.providerLabel,
+      warnings: result.warnings,
       storyboard: result.storyboard
         ? {
             title: result.storyboard.title,
@@ -163,6 +164,6 @@ export async function POST(req: Request) {
       durationMs: Date.now() - started,
       detail: apiErr.details,
     });
-    return NextResponse.json(errorBody(apiErr), { status: apiErr.status });
+    return NextResponse.json({ ...errorBody(apiErr), details: apiErr.details }, { status: apiErr.status });
   }
 }

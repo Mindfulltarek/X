@@ -287,6 +287,7 @@ export interface GenerateVideoResponse {
   status: "done" | "pending";
   provider?: string;
   providerLabel?: string;
+  warnings?: MediaWarning[];
   url?: string;
   durationSeconds?: number;
   size?: { width: number; height: number };
@@ -305,12 +306,22 @@ export interface GeneratedImage {
   revisedPrompt?: string;
 }
 
+/** One backend that was tried and did not answer, with a sanitised reason. */
+export interface MediaWarning {
+  backend: string;
+  label: string;
+  code?: string;
+  reason?: string;
+}
+
 export interface GenerateImageResponse {
   ok: true;
   backend: string;
   model?: string;
   images: GeneratedImage[];
   tookMs: number;
+  /** Earlier backends that failed before this one succeeded. */
+  warnings?: MediaWarning[];
 }
 
 export interface ApiErrorBody {

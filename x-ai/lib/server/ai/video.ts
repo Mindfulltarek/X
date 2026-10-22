@@ -497,6 +497,7 @@ async function fetchMovie(project: string, signal: AbortSignal): Promise<MovieSt
 
 export interface VideoResult {
   status: "done" | "pending";
+  warnings?: { backend: string; label: string; code?: string; reason?: string }[];
   provider: string;
   providerLabel: string;
   model?: string;
@@ -541,6 +542,14 @@ export async function generateVideo(opts: {
       return {
         status: "done",
         provider: media.provider,
+        warnings: (media.attempts ?? [])
+          .filter((attempt) => !attempt.ok)
+          .map((attempt) => ({
+            backend: attempt.id,
+            label: attempt.label,
+            code: attempt.code,
+            reason: attempt.reason,
+          })),
         providerLabel: media.providerLabel,
         model: media.model,
         url: media.urls[0],

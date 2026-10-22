@@ -86,8 +86,21 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* --------------------------- Google Gemini ------------------------------ */
+  if (path === "/v1beta/interactions") {
+    if (FAIL === "gemini") return unauthorized(res, "gemini");
+    if (!apiKey) return json(res, 400, { error: { message: "API key not valid." } });
+    return json(res, 200, {
+      id: "int_1",
+      status: "completed",
+      output_image: { data: PNG_B64, mime_type: "image/png" },
+    });
+  }
   if (path.startsWith("/v1beta/models/")) {
     if (FAIL === "gemini") return unauthorized(res, "gemini");
+    // MODE=interactions simulates a model that only answers on /interactions.
+    if ((process.env.MOCK_MEDIA_GEMINI_MODE ?? "") === "interactions") {
+      return json(res, 400, { error: { message: "responseModalities is not supported by this model" } });
+    }
     if (!apiKey) return json(res, 400, { error: { message: "API key not valid." } });
     if (!path.endsWith(":generateContent")) return json(res, 404, { error: { message: "no route" } });
     return json(res, 200, {

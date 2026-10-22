@@ -180,8 +180,20 @@ export function mediaOrder(kind: MediaKind): MediaBackendStatus[] {
 /* Result                                                                      */
 /* -------------------------------------------------------------------------- */
 
+export interface MediaAttempt {
+  id: string;
+  label: string;
+  ok: boolean;
+  status?: number;
+  code?: string;
+  /** Sanitised upstream reason (never a key, never a full response body). */
+  reason?: string;
+}
+
 export interface MediaResult {
   kind: MediaKind;
+  /** Which backends were tried, in order, and why each earlier one failed. */
+  attempts?: MediaAttempt[];
   /** Data URLs or https URLs — whatever the backend returned. */
   urls: string[];
   model: string;
@@ -210,21 +222,54 @@ function failed(status: number, detail: string, label: string): ApiError {
   return apiError("upstream_unavailable", { message: `${label} could not complete the request.`, details: detail });
 }
 
+/**
+ * Turns an upstream message into something safe to hand back to the browser:
+ * long token-like strings are masked and the length is capped. Provider error
+ * bodies occasionally echo request ids, so this stays deliberately blunt.
+ */
+function sanitizeReason(raw: string | undefined, fallback: string): string {
+  if (!raw) return fallback;
+  const cleaned = raw
+    .replace(/[A-Za-z0-9_-]{28,}/g, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.slice(0, 180) || fallback;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Google Gemini — image                                                       */
 /* -------------------------------------------------------------------------- */
 
 const GOOGLE_BASE = () => (env("GEMINI_BASE_URL") ?? "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, "");
 
-async function googleImage(opts: { prompt: string; signal: AbortSignal }): Promise<MediaResult> {
-  const key = firstEnv("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_AI_API_KEY");
-  if (!key) throw apiError("image_backend_not_configured", { message: "GEMINI_API_KEY is not set." });
-  const model = env("AI_GEMINI_IMAGE_MODEL") ?? "gemini-2.5-flash-image";
-  const started = Date.now();
+/** Documented Gemini image-output model ids, newest first. */
+function geminiImageModels(): string[] {
+  const configured = env("AI_GEMINI_IMAGE_MODEL");
+  const defaults = ["gemini-3.1-flash-image", "gemini-3-pro-image", "gemini-2.5-flash-image"];
+  return configured ? [configured, ...defaults.filter((id) => id !== configured)] : defaults;
+}
 
-  const res = await fetch(`${GOOGLE_BASE()}/models/${encodeURIComponent(model)}:generateContent`, {
+type GeminiPart = { inlineData?: { mimeType?: string; data?: string }; text?: string };
+
+function collectGeminiImages(parts: GeminiPart[] | undefined): string[] {
+  const urls: string[] = [];
+  for (const part of parts ?? []) {
+    const inline = part.inlineData;
+    if (inline?.data) urls.push(`data:${inline.mimeType ?? "image/png"};base64,${inline.data}`);
+  }
+  return urls;
+}
+
+/** `POST /models/{model}:generateContent` with `responseModalities: [TEXT, IMAGE]`. */
+async function googleGenerateContent(opts: {
+  model: string;
+  prompt: string;
+  signal: AbortSignal;
+  key: string;
+}): Promise<{ urls: string[]; status: number; body: unknown }> {
+  const res = await fetch(`${GOOGLE_BASE()}/models/${encodeURIComponent(opts.model)}:generateContent`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": key.value },
+    headers: { "Content-Type": "application/json", "x-goog-api-key": opts.key },
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: opts.prompt }] }],
       generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
@@ -232,40 +277,111 @@ async function googleImage(opts: { prompt: string; signal: AbortSignal }): Promi
     signal: AbortSignal.any([opts.signal, AbortSignal.timeout(DEFAULT_TIMEOUT_MS)]),
     cache: "no-store",
   });
+  const body = await readJson(res);
+  const parts = (body as { candidates?: { content?: { parts?: GeminiPart[] } }[] })?.candidates?.[0]?.content?.parts;
+  return { urls: collectGeminiImages(parts), status: res.status, body };
+}
 
-  if (!res.ok) throw failed(res.status, await readUpstreamError(res), "Google Gemini");
-
-  const json = (await readJson(res)) as {
-    candidates?: { content?: { parts?: { inlineData?: { mimeType?: string; data?: string }; text?: string }[] } }[];
-    error?: { message?: string };
-  };
+/** `POST /interactions` with `response_format: {type: "image"}` (newer image models). */
+async function googleInteractions(opts: {
+  model: string;
+  prompt: string;
+  signal: AbortSignal;
+  key: string;
+}): Promise<{ urls: string[]; status: number; body: unknown }> {
+  const res = await fetch(`${GOOGLE_BASE()}/interactions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": opts.key },
+    body: JSON.stringify({
+      model: opts.model,
+      input: [{ type: "text", text: opts.prompt }],
+      response_format: { type: "image" },
+    }),
+    signal: AbortSignal.any([opts.signal, AbortSignal.timeout(DEFAULT_TIMEOUT_MS)]),
+    cache: "no-store",
+  });
+  const body = (await readJson(res)) as {
+    output_image?: { data?: string; mime_type?: string } | string;
+    outputs?: { type?: string; data?: string; mime_type?: string; image?: { data?: string; mime_type?: string } }[];
+    candidates?: { content?: { parts?: GeminiPart[] } }[];
+  } | null;
 
   const urls: string[] = [];
-  for (const candidate of json?.candidates ?? []) {
-    for (const part of candidate.content?.parts ?? []) {
-      const inline = part.inlineData;
-      if (inline?.data) {
-        urls.push(`data:${inline.mimeType ?? "image/png"};base64,${inline.data}`);
-      }
-    }
+  const push = (data?: string, mime?: string) => {
+    if (data) urls.push(`data:${mime ?? "image/png"};base64,${data}`);
+  };
+  if (typeof body?.output_image === "string") push(body.output_image);
+  else push(body?.output_image?.data, body?.output_image?.mime_type);
+  for (const output of body?.outputs ?? []) {
+    push(output.data, output.mime_type);
+    push(output.image?.data, output.image?.mime_type);
   }
-  if (urls.length === 0) {
-    const text = json?.candidates?.[0]?.content?.parts?.map((part) => part.text).filter(Boolean).join(" ");
-    throw apiError("invalid_response", {
-      message: text
-        ? `Gemini returned text instead of an image: ${String(text).slice(0, 160)}`
-        : "Gemini returned no image. The model may not be an image-output model.",
-    });
+  urls.push(...collectGeminiImages(body?.candidates?.[0]?.content?.parts));
+
+  return { urls, status: res.status, body };
+}
+
+async function googleImage(opts: { prompt: string; signal: AbortSignal }): Promise<MediaResult> {
+  const key = firstEnv("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_AI_API_KEY");
+  if (!key) throw apiError("image_backend_not_configured", { message: "GEMINI_API_KEY is not set." });
+  const started = Date.now();
+  const models = geminiImageModels();
+  const reasons: string[] = [];
+
+  for (const model of models) {
+    // 1. The long-standing text+image modality call.
+    const primary = await googleGenerateContent({ model, prompt: opts.prompt, signal: opts.signal, key: key.value });
+    if (primary.urls.length > 0) {
+      return {
+        kind: "image",
+        urls: primary.urls,
+        model,
+        provider: "google",
+        providerLabel: "Google Gemini",
+        waitedMs: Date.now() - started,
+      };
+    }
+    if (primary.status === 401 || primary.status === 403) {
+      throw failed(primary.status, await describe(primary.body), "Google Gemini");
+    }
+    reasons.push(`${model} /:generateContent → HTTP ${primary.status} ${await describe(primary.body)}`);
+
+    // 2. The newer image endpoint, used when the model rejects responseModalities.
+    const interaction = await googleInteractions({ model, prompt: opts.prompt, signal: opts.signal, key: key.value });
+    if (interaction.urls.length > 0) {
+      return {
+        kind: "image",
+        urls: interaction.urls,
+        model,
+        provider: "google",
+        providerLabel: "Google Gemini",
+        waitedMs: Date.now() - started,
+      };
+    }
+    if (interaction.status === 401 || interaction.status === 403) {
+      throw failed(interaction.status, await describe(interaction.body), "Google Gemini");
+    }
+    reasons.push(`${model} /interactions → HTTP ${interaction.status} ${await describe(interaction.body)}`);
   }
 
-  return {
-    kind: "image",
-    urls,
-    model,
-    provider: "google",
-    providerLabel: "Google Gemini",
-    waitedMs: Date.now() - started,
-  };
+  throw apiError("upstream_unavailable", {
+    message: "Google Gemini did not return an image for any known image model.",
+    details: sanitizeReason(reasons.join(" | "), "No image returned."),
+    retryable: true,
+  });
+}
+
+/** Short human description of an upstream JSON body, for diagnostics. */
+async function describe(body: unknown): Promise<string> {
+  if (!body) return "(empty)";
+  const message = (body as { error?: { message?: string }; message?: string }).error?.message ??
+    (body as { message?: string }).message;
+  if (typeof message === "string" && message) return message.slice(0, 120);
+  try {
+    return JSON.stringify(body).slice(0, 120);
+  } catch {
+    return "(unreadable)";
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -582,7 +698,9 @@ export async function generateImageViaMedia(opts: {
   const backends = mediaOrder("image");
   if (backends.length === 0) return null;
 
+  const attempts: MediaAttempt[] = [];
   let firstError: ApiError | null = null;
+
   for (const backend of backends) {
     try {
       const result =
@@ -600,19 +718,30 @@ export async function generateImageViaMedia(opts: {
         model: result.model,
         durationMs: result.waitedMs,
       });
-      return result;
+      attempts.push({ id: backend.id, label: backend.label, ok: true });
+      return { ...result, attempts };
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : apiError("internal");
+      const reason = sanitizeReason(
+        apiErr.details ?? apiErr.message,
+        apiErr.code === "upstream_timeout" ? "timed out" : "failed",
+      );
       logServerEvent({
         requestId: `media-image-${backend.id}`,
         route: "media:image",
         code: apiErr.code,
-        detail: `${backend.label}: ${apiErr.details ?? apiErr.message}`.slice(0, 180),
-        durationMs: Date.now(),
+        detail: `${backend.label}: ${reason}`.slice(0, 180),
       });
+      attempts.push({ id: backend.id, label: backend.label, ok: false, code: apiErr.code, reason });
       if (!firstError) firstError = apiErr;
     }
   }
+
+  const summary = attempts
+    .filter((attempt) => !attempt.ok)
+    .map((attempt) => `${attempt.label}: ${attempt.reason}`)
+    .join(" · ");
+  if (firstError) firstError.details = summary.slice(0, 400) || firstError.details;
   throw firstError ?? apiError("image_backend_not_configured");
 }
 
@@ -626,7 +755,9 @@ export async function generateVideoViaMedia(opts: {
   if (backends.length === 0) return null;
 
   const deadlineMs = opts.deadlineMs ?? 110_000;
+  const attempts: MediaAttempt[] = [];
   let firstError: ApiError | null = null;
+
   for (const backend of backends) {
     try {
       const result =
@@ -642,18 +773,29 @@ export async function generateVideoViaMedia(opts: {
         model: result.model,
         durationMs: result.waitedMs,
       });
-      return result;
+      attempts.push({ id: backend.id, label: backend.label, ok: true });
+      return { ...result, attempts };
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : apiError("internal");
+      const reason = sanitizeReason(
+        apiErr.details ?? apiErr.message,
+        apiErr.code === "upstream_timeout" ? "timed out" : "failed",
+      );
       logServerEvent({
         requestId: `media-video-${backend.id}`,
         route: "media:video",
         code: apiErr.code,
-        detail: `${backend.label}: ${apiErr.details ?? apiErr.message}`.slice(0, 180),
-        durationMs: Date.now(),
+        detail: `${backend.label}: ${reason}`.slice(0, 180),
       });
+      attempts.push({ id: backend.id, label: backend.label, ok: false, code: apiErr.code, reason });
       if (!firstError) firstError = apiErr;
     }
   }
+
+  const summary = attempts
+    .filter((attempt) => !attempt.ok)
+    .map((attempt) => `${attempt.label}: ${attempt.reason}`)
+    .join(" · ");
+  if (firstError) firstError.details = summary.slice(0, 400) || firstError.details;
   throw firstError ?? apiError("video_backend_not_configured");
 }

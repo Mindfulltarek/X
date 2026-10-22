@@ -28,6 +28,7 @@ import { IMAGE_GENERATION_SUFFIX } from "./prompts";
 const MAX_IMAGE_RESPONSE_BYTES = 24 * 1024 * 1024;
 
 export interface ImageGenResult {
+  warnings?: { backend: string; label: string; code?: string; reason?: string }[];
   backend: string;
   model?: string;
   images: GeneratedImage[];
@@ -294,6 +295,14 @@ export async function generateImage(opts: {
       return {
         backend: media.providerLabel,
         model: media.model,
+        warnings: (media.attempts ?? [])
+          .filter((attempt) => !attempt.ok)
+          .map((attempt) => ({
+            backend: attempt.id,
+            label: attempt.label,
+            code: attempt.code,
+            reason: attempt.reason,
+          })),
         images: media.urls.map((url) => ({ url, mime: url.startsWith("data:") ? url.slice(5, url.indexOf(";")) : undefined })),
       };
     }
