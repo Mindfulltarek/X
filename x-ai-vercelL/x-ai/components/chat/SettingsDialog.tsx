@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 
 import type { HealthResponse, ModelsResponse, PublicProviderStatus } from "@/lib/types";
-import type { ImageBackendStatus } from "@/lib/client/api";
+import type { ImageBackendStatus, MediaBackendInfo, VideoBackendStatus } from "@/lib/client/api";
 
 export interface SettingsDialogProps {
   open: boolean;
@@ -29,6 +29,7 @@ export interface SettingsDialogProps {
   modelsLoading: boolean;
   onRefreshModels: () => void;
   imageBackend: ImageBackendStatus | null;
+  videoBackend: VideoBackendStatus | null;
   onClearHistory: () => void;
   storageWarning: string | null;
   localUsage?: { usage?: number; quota?: number };
@@ -114,6 +115,42 @@ function CapabilityStat({ label, value }: { label: string; value: string | numbe
   );
 }
 
+/** Per-service image/video status: which key is present, which models are used. */
+function MediaProviders({ list }: { list?: MediaBackendInfo[] }) {
+  if (!list || list.length === 0) return null;
+  return (
+    <ul className="mt-2 space-y-1.5">
+      {list.map((entry) => (
+        <li
+          key={entry.id}
+          className="rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2 text-[0.78rem] leading-5"
+        >
+          <span className="flex items-center justify-between gap-2">
+            <span className="font-semibold text-ink-100">{entry.label}</span>
+            <span
+              className={
+                entry.configured
+                  ? "shrink-0 rounded-full bg-emerald-400/15 px-2 py-0.5 text-[0.68rem] font-semibold text-emerald-300"
+                  : "shrink-0 rounded-full bg-white/5 px-2 py-0.5 text-[0.68rem] font-semibold text-ink-400"
+              }
+            >
+              {entry.configured ? "ready" : "no key"}
+            </span>
+          </span>
+          <span className="mt-0.5 block text-ink-400">{entry.message}</span>
+          {(entry.imageModel || entry.videoModel) && (
+            <span className="mt-0.5 block font-mono text-[0.7rem] text-ink-500">
+              {[entry.imageModel && `image: ${entry.imageModel}`, entry.videoModel && `video: ${entry.videoModel}`]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function SettingsDialog({
   open,
   onClose,
@@ -124,6 +161,7 @@ export function SettingsDialog({
   modelsLoading,
   onRefreshModels,
   imageBackend,
+  videoBackend,
   onClearHistory,
   storageWarning,
   localUsage,
@@ -310,6 +348,26 @@ export function SettingsDialog({
               }
               detail={imageBackend?.message ?? "Image generation is optional and depends on the providers you connected."}
             />
+            <MediaProviders list={imageBackend?.providers} />
+          </section>
+
+          <section aria-labelledby="settings-video">
+            <h3 id="settings-video" className="mb-2 text-[0.72rem] font-bold uppercase tracking-[0.14em] text-ink-300">
+              Video generation
+            </h3>
+            <StatusRow
+              state={videoBackend?.configured ? "ok" : "off"}
+              title={
+                videoBackend?.configured
+                  ? `Configured (${videoBackend.backend} · ${videoBackend.resolution}, up to ${videoBackend.maxSeconds}s)`
+                  : "Not configured"
+              }
+              detail={
+                videoBackend?.message ??
+                "Video rendering is optional. Add JSON2VIDEO_API_KEY, XAI_API_KEY, KIE_API_KEY or WIRO_API_KEY and redeploy."
+              }
+            />
+            <MediaProviders list={videoBackend?.providers} />
           </section>
 
           <section aria-labelledby="settings-storage">

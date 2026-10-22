@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import type { GenerateImageRequestBody, GenerateImageResponse } from "@/lib/types";
 import { getRegistry } from "@/lib/server/ai/registry";
 import { imageBackendStatus, generateImage } from "@/lib/server/imagegen";
+import { mediaBackends } from "@/lib/server/ai/media";
 import { ApiError, apiError, errorBody, logServerEvent, newRequestId } from "@/lib/server/errors";
 import { checkRateLimit, clientKeyFromHeaders, rateLimits } from "@/lib/server/rate-limit";
 import { generateImageRequestSchema, readJsonBody, zodMessage } from "@/lib/server/validate";
@@ -18,6 +19,8 @@ export interface ImageBackendPayload {
   models: string[];
   message: string;
   gatewayConfigured: boolean;
+  /** Every image-capable service and whether it is configured. */
+  providers: { id: string; label: string; configured: boolean; apiKeyEnv?: string; imageModel?: string; message: string }[];
 }
 
 /**
@@ -45,6 +48,16 @@ export async function GET(req: Request) {
     models: status.models,
     message: status.message,
     gatewayConfigured: snapshot.ready,
+    providers: mediaBackends()
+      .filter((entry) => entry.kinds.includes("image"))
+      .map((entry) => ({
+        id: entry.id,
+        label: entry.label,
+        configured: entry.configured,
+        apiKeyEnv: entry.apiKeyEnv,
+        imageModel: entry.imageModel,
+        message: entry.message,
+      })),
   };
   return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
 }

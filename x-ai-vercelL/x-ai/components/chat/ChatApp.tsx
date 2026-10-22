@@ -18,7 +18,7 @@ import { XBrand, XMark } from "@/components/brand/XMark";
 import { Composer, type PendingAttachment } from "./Composer";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { DropOverlay } from "./DropOverlay";
-import { MessageBubble, GeneratedImageCard } from "./MessageBubble";
+import { MessageBubble, GeneratedImageCard, GeneratedVideoCard } from "./MessageBubble";
 import { SettingsDialog } from "./SettingsDialog";
 import { Sidebar } from "./Sidebar";
 
@@ -26,6 +26,7 @@ import type {
   AttachmentMeta,
   ChatStreamEvent,
   CollabInfo,
+  VideoAsset,
   HealthResponse,
   ModelsResponse,
   OperationMode,
@@ -36,9 +37,11 @@ import {
   fetchHealth,
   fetchImageBackend,
   fetchModels,
+  fetchVideoBackend,
   generateImage,
   streamChat,
   type ImageBackendStatus,
+  type VideoBackendStatus,
 } from "@/lib/client/api";
 import {
   checkStorage,
@@ -126,6 +129,7 @@ export function ChatApp() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
   const [imageBackend, setImageBackend] = useState<ImageBackendStatus | null>(null);
+  const [videoBackend, setVideoBackend] = useState<VideoBackendStatus | null>(null);
 
   const [streaming, setStreaming] = useState<{ messageId: string; text: string; status: string } | null>(null);
   const [banner, setBanner] = useState<Banner | null>(null);
@@ -201,6 +205,11 @@ export function ChatApp() {
         setImageBackend(await fetchImageBackend());
       } catch {
         setImageBackend(null);
+      }
+      try {
+        setVideoBackend(await fetchVideoBackend());
+      } catch {
+        setVideoBackend(null);
       }
     })();
     // applyChats is stable, so the bootstrap runs once on mount.
@@ -448,6 +457,7 @@ export function ChatApp() {
       let servedModel: string | undefined;
       let servedProvider: string | undefined;
       let collab: CollabInfo | null = null;
+      let renderedVideos: VideoAsset[] = [];
       let fallbackUsed = false;
       let visionUsed = false;
       let documentsUsed = 0;
@@ -505,6 +515,14 @@ export function ChatApp() {
                     disputes: event.disputes,
                   };
                 }
+              } else if (event.type === "video") {
+                renderedVideos = event.videos.map((video) => ({
+                  ...video,
+                  storyboardSource: event.storyboard?.source ?? video.storyboardSource,
+                  author: event.storyboard?.author ?? video.author,
+                }));
+                servedProvider = event.backend ?? servedProvider;
+                setStreaming((prev) => (prev ? { ...prev, status: "Finishing video…" } : prev));
               } else if (event.type === "image") {
                 generatedImages = event.images.map((image) => ({ url: image.url, mime: image.mime }));
                 servedModel = event.model ?? servedModel;
@@ -567,6 +585,7 @@ export function ChatApp() {
         provider: servedProvider,
         requestedModel: opts.requestModel,
         collab,
+        videos: renderedVideos.length > 0 ? renderedVideos : undefined,
         fallbackUsed,
         visionUsed,
         documentsUsed: documentsUsed || undefined,
@@ -1228,6 +1247,9 @@ export function ChatApp() {
                         label={`Generated with ${message.model ?? "the configured backend"}`}
                       />
                     ))}
+                  {(message.videos ?? []).map((video, index) => (
+                    <GeneratedVideoCard key={`${video.project ?? video.url}-${index}`} video={video} />
+                  ))}
                 </MessageBubble>
               ))}
 
@@ -1301,6 +1323,7 @@ export function ChatApp() {
         modelsLoading={modelsLoading}
         onRefreshModels={() => void refreshModels()}
         imageBackend={imageBackend}
+        videoBackend={videoBackend}
         onClearHistory={requestClearAll}
         storageWarning={storageWarning}
         localUsage={localUsage}

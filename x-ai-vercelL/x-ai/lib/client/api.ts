@@ -58,6 +58,16 @@ export async function fetchModels(opts: { refresh?: boolean; signal?: AbortSigna
   return (await res.json()) as ModelsResponse;
 }
 
+export interface MediaBackendInfo {
+  id: string;
+  label: string;
+  configured: boolean;
+  apiKeyEnv?: string;
+  imageModel?: string;
+  videoModel?: string;
+  message: string;
+}
+
 export interface ImageBackendStatus {
   configured: boolean;
   backend: string | null;
@@ -65,12 +75,30 @@ export interface ImageBackendStatus {
   models?: string[];
   message: string;
   gatewayConfigured: boolean;
+  providers?: MediaBackendInfo[];
 }
 
 export async function fetchImageBackend(opts: { signal?: AbortSignal } = {}): Promise<ImageBackendStatus> {
   const res = await fetch("/api/generate-image", { cache: "no-store", signal: opts.signal });
   if (!res.ok) throw await readError(res);
   return (await res.json()) as ImageBackendStatus;
+}
+
+export interface VideoBackendStatus {
+  configured: boolean;
+  backend: string | null;
+  providerLabel?: string;
+  apiKeyEnv?: string;
+  resolution: string;
+  maxSeconds: number;
+  message: string;
+  providers?: MediaBackendInfo[];
+}
+
+export async function fetchVideoBackend(opts: { signal?: AbortSignal } = {}): Promise<VideoBackendStatus> {
+  const res = await fetch("/api/generate-video", { cache: "no-store", signal: opts.signal });
+  if (!res.ok) throw await readError(res);
+  return (await res.json()) as VideoBackendStatus;
 }
 
 export interface ChatRequest {

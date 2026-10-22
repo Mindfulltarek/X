@@ -16,6 +16,7 @@ export type ErrorCode =
   | "unsupported_image_type"
   | "not_configured"
   | "image_backend_not_configured"
+  | "video_backend_not_configured"
   | "unsupported_file_type"
   | "no_vision_model"
   | "unauthorized_upstream"
@@ -86,6 +87,12 @@ export const ERROR_COPY: Record<ErrorCode, { message: string; retryable: boolean
   image_backend_not_configured: {
     message:
       "Image generation is not configured. The site owner needs to add an image-capable model to AI_PROVIDERS, or connect a ComfyUI backend.",
+    retryable: false,
+    status: 501,
+  },
+  video_backend_not_configured: {
+    message:
+      "Video generation is not configured. The site owner needs to add a JSON2VIDEO_API_KEY environment variable and redeploy.",
     retryable: false,
     status: 501,
   },

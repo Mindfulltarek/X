@@ -256,3 +256,43 @@ service runs next to the server — documented, not used in production.)
 - The rate limiter is in-memory and per instance — fine as a speed bump on one instance, not a
   distributed defence.
 - No claim is made about "unlimited" or "free" usage anywhere in the app.
+
+---
+
+## Addendum (2026-10-22, later): video generation through JSON2Video
+
+Added after the initial delivery, on request, keeping the same rules (no invented endpoints, no fake
+output, no key in the browser).
+
+**What it is.** JSON2Video is a *renderer*, not a text-to-video model: it turns a JSON "movie" into an
+MP4. So the pipeline is: chat model writes a storyboard → the storyboard is compiled to the documented
+Movie JSON → `POST /v2/movies` returns a project id → `GET /v2/movies?project=…` is polled until
+`done` → the returned MP4 URL is shown. If no chat model is reachable, or its reply is not usable JSON,
+the storyboard is built deterministically from the user's own sentences and the UI says which one was
+used (`storyboard written by a model` vs `storyboard from your prompt`).
+
+**Wire contract used (from json2video.com/docs/v2).** `x-api-key` header; body
+`{ resolution, quality, fps, scenes:[{ duration, background-color, elements:[{ type:"text", text,
+settings:{…CSS…} }] }], "client-data": {…} }`; create → `{ success, project, timestamp }`;
+status → `{ success, movie:{ status: queued|running|done|error|timeout, url, duration, size,
+message } }`. Resolution enum and the 2 MB body limit are respected; 401 is reported as
+"key rejected or quota exhausted", 413 as "too large" and never retried blindly.
+
+**New surface.** `GET /api/generate-video` (status, no upstream call), `GET ?project=` (poll),
+`POST { prompt }` / `POST { project }`. Chat gains a `video-gen` intent lane and a `video` SSE event;
+the assistant bubble renders a `<video>` card with duration, resolution, storyboard provenance and a
+download link. Settings gains a **Video generation** row. `/api/diagnostics` reports it.
+
+**Cost/time controls.** `AI_VIDEO_MAX_SECONDS` (default 20) caps total length, `AI_VIDEO_RESOLUTION`
+(default `hd`), `AI_VIDEO_ENABLED=0` disables. A render that outlives the request budget returns
+`202 status:"pending"` with the project id instead of pretending to be finished.
+
+**Verified** against a local mock that implements the documented endpoints (queued → running → done,
+401 on a wrong key): status, render, polling, the chat lane, the deterministic storyboard fallback
+with every chat provider stopped, the 401 path and the 501 path; plus typecheck, lint, production
+build, and a browser run (0 console errors) — screenshots `chat-video.png`, `settings-video.png`.
+
+**Not verified:** a real JSON2Video render (no account/key in this environment), and real video
+quality. Nothing here claims otherwise.
+
+**Enable it:** add `JSON2VIDEO_API_KEY` in Vercel → Environment Variables (Production) → redeploy.

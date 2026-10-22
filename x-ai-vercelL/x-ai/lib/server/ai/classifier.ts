@@ -137,6 +137,27 @@ const IMAGE_GEN_HINTS = [
   "text-to-image",
 ];
 
+const VIDEO_GEN_HINTS = [
+  "generate a video",
+  "generate an video",
+  "create a video",
+  "make a video",
+  "make me a video",
+  "render a video",
+  "produce a video",
+  "video of a",
+  "video about",
+  "promo video",
+  "explainer video",
+  "short video",
+  "reel ",
+  "tiktok video",
+  "فيديو",
+  "اعمل فيديو",
+  "اصنع فيديو",
+  "سجل فيديو",
+];
+
 const DOCUMENT_HINTS = ["pdf", "docx", "spreadsheet", "attached file", "this document", "the file"];
 
 function lastUserText(messages: ChatMessagePayload[]): string {
@@ -196,6 +217,20 @@ export function classify(input: ClassifyInput): Classification {
   // "generate an image prompt" is analysis, not generation.
   if (imageGenerationIntent && /image\s*prompt|prompt\s*for/i.test(lower)) imageGenerationIntent = false;
 
+  /* ---------------- video generation intent ---------------- */
+  let videoGenerationIntent = false;
+  if (!isImagePromptMode && VIDEO_GEN_HINTS.some((hint) => lower.includes(hint))) {
+    videoGenerationIntent = true;
+  }
+  // "how do I make a video", "video ideas", "why is my video…" are questions, not renders.
+  if (videoGenerationIntent && /how (do|to|can)|ideas?\b|why |what is|explain/.test(lower)) {
+    videoGenerationIntent = false;
+  }
+  if (videoGenerationIntent) {
+    // A request for a video is not also a request for a still image.
+    imageGenerationIntent = false;
+  }
+
   /* ---------------- web ---------------- */
   const needsWeb = webAvailable && WEB_HINTS.some((hint) => lower.includes(hint));
   if (needsWeb) signals.push("asked for time-sensitive information");
@@ -220,7 +255,10 @@ export function classify(input: ClassifyInput): Classification {
 
   /* ---------------- decide the task kind ---------------- */
   let kind: TaskKind;
-  if (imageGenerationIntent) {
+  if (videoGenerationIntent) {
+    kind = "video-gen";
+    signals.push("asked for a video to be rendered");
+  } else if (imageGenerationIntent) {
     kind = "image-gen";
     prefers.push("image-gen");
     signals.push("asked for a generated image");
@@ -255,6 +293,7 @@ export function classify(input: ClassifyInput): Classification {
     prefers: [...new Set(prefers)],
     signals,
     imageGenerationIntent,
+    videoGenerationIntent,
     needsWeb,
   };
 }
@@ -262,6 +301,7 @@ export function classify(input: ClassifyInput): Classification {
 /** One-sentence, human-readable explanation of a classification. */
 export function describeClassification(classification: Classification): string {
   const kindLabels: Record<TaskKind, string> = {
+    "video-gen": "a video request",
     simple: "a short question",
     general: "a general question",
     reasoning: "an analysis task",

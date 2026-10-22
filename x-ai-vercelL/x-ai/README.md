@@ -28,11 +28,12 @@ hairline borders, a luminous X mark, and a simple readable chat layout.
 9. [The localhost problem, explained](#the-localhost-problem-explained)
 10. [Model routing and fallback](#model-routing-and-fallback)
 11. [Image understanding and image generation](#image-understanding-and-image-generation)
-12. [Security model](#security-model)
-13. [API reference](#api-reference)
-14. [Manual test checklist](#manual-test-checklist)
-15. [Troubleshooting](#troubleshooting)
-16. [Development mock gateway](#development-mock-gateway)
+12. [Video generation (JSON2Video)](#video-generation-json2video)
+13. [Security model](#security-model)
+14. [API reference](#api-reference)
+15. [Manual test checklist](#manual-test-checklist)
+16. [Troubleshooting](#troubleshooting)
+17. [Development mock gateway](#development-mock-gateway)
 
 ---
 
@@ -42,7 +43,7 @@ hairline borders, a luminous X mark, and a simple readable chat layout.
 | --- | --- |
 | Landing page (shader-gradient background, hero with two Start CTAs, capabilities, how-it-works, privacy note, footer credit) | ✅ fully implemented |
 | Chat workspace (sidebar, search, grouped recent chats, **pin / rename / archive / delete**, model picker, modes) | ✅ fully implemented |
-| Streaming chat through OmniRoute `/v1/chat/completions` | ✅ real streaming, no simulated typing |
+| Streaming chat through any OpenAI-compatible provider (`/chat/completions`) | ✅ real streaming, no simulated typing |
 | Image → Prompt mode with a 10-section analysis and a copyable prompt block | ✅ implemented server-side prompt engineering |
 | Image attach: file picker, clipboard paste, drag & drop, full-viewport drop overlay | ✅ implemented |
 | Local persistence: IndexedDB chats, messages and image Blobs; localStorage for small prefs | ✅ implemented |
@@ -53,6 +54,9 @@ hairline borders, a luminous X mark, and a simple readable chat layout.
 | Vision end-to-end: images are only sent to models that declare vision support | ✅ implemented |
 | Documents: PDF / DOCX / text attachments are extracted to text server-side | ✅ implemented (best-effort for PDFs) |
 | Image generation from a discovered image model, or a ComfyUI backend | ✅ implemented, **off until one is available** |
+| Video rendering through JSON2Video (model-authored storyboard → MP4) | ✅ implemented, **off until `JSON2VIDEO_API_KEY` is set** |
+| Image generation through Gemini / xAI / Kie.ai / Wiro.ai | ✅ implemented, **off until that service's key is set** |
+| Video generation through xAI / Kie.ai / Wiro.ai | ✅ implemented, **off until that service's key is set** |
 | Privacy / Terms / AI Provider & Usage pages | ✅ implemented |
 | SVG brand mark + favicon (X, not the reference "AI") | ✅ implemented |
 | Type check, lint and production build | ✅ all green |
@@ -279,7 +283,29 @@ publishes nothing useful — the router will then trust your declaration instead
 3. To pin a model first, set `priority` low on the model and/or the provider.
 4. **Redeploy** (Vercel: *Deployments → Redeploy*; locally: restart `npm run dev`). Cached catalogues
    live in memory only, so a restart also clears them.
-5. Verify: `/api/health`, `/api/models`, and **Settings → Providers**.
+5. Verify — see [Checking a deployment](#checking-a-deployment).
+
+### Checking a deployment
+
+```bash
+node tools/check-providers.mjs https://your-site.example
+```
+
+Prints one line per provider (status · chat models · vision models · image models · latency · host),
+the routing capabilities, and a pass/fail summary with the exact variable to fix. It only reads the
+public endpoints, sends no key, and exits non-zero when something is wrong. It also detects an
+out-of-date deployment (a build whose `/api/models` has no `providers`/`capabilities` fields).
+
+In the browser the same information is in **/chat → Settings**:
+
+| What | Where |
+| --- | --- |
+| Is each provider reachable, and with which key variable? | Settings → **Providers** (status, host, model count, latency, error message) |
+| Can this deployment read images / generate images? | Settings → **Models & routing** (vision and image counts must be > 0) |
+| Why did a request go to that model? | `/api/diagnostics` (`issues`, per-model table with `AI_DIAGNOSTICS_TOKEN`) |
+
+A healthy deployment looks like this: every provider `ok`, chat count > 0, **vision count > 0** if you
+want image prompts, and `image output > 0` if you want image generation.
 
 ### OmniRoute and other gateways
 
@@ -338,6 +364,27 @@ ever sent to the browser.**
 | `COMFYUI_NEGATIVE_PROMPT` | built-in | Negative prompt for the built-in workflow. |
 | `COMFYUI_WORKFLOW_JSON` | built-in SD1.5 txt2img | Custom API-format graph with `__PROMPT__`, `__NEGATIVE__`, `__SEED__`, `__WIDTH__`, `__HEIGHT__`, `__CHECKPOINT__`. |
 | `COMFYUI_TIMEOUT_MS` | `180000` | How long to wait for a ComfyUI job. |
+
+### Video generation (JSON2Video)
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `JSON2VIDEO_API_KEY` | — | JSON2Video API key, sent as the documented `x-api-key` header. Without it the feature reports **Not configured** and `POST /api/generate-video` returns `501`. |
+| `J2V_API_KEY` | — | Accepted alias for the same key. |
+| `AI_VIDEO_ENABLED` | `1` | `0` switches video rendering off even when a key exists. |
+| `AI_VIDEO_RESOLUTION` | `hd` | `sd` \| `hd` \| `full-hd` \| `squared` \| `instagram-story` \| `instagram-feed` \| `twitter-landscape` \| `twitter-portrait`. Must be within your JSON2Video plan's allowance. |
+| `AI_VIDEO_MAX_SECONDS` | `20` | Hard cap on the total length of one render (3–120). Also the main cost control. |
+| `JSON2VIDEO_BASE_URL` | `https://api.json2video.com/v2/movies` | Tests / self-hosted proxy only. |
+| `GEMINI_API_KEY` | — | Google AI Studio key → image generation via `models/{model}:generateContent` with `responseModalities:["TEXT","IMAGE"]`. |
+| `AI_GEMINI_IMAGE_MODEL` | `gemini-2.5-flash-image` | Gemini image model id. |
+| `XAI_API_KEY` | — | xAI key → `/images/generations` and `/videos/generations` (polled with `/videos/{id}`). |
+| `AI_XAI_IMAGE_MODEL` / `AI_XAI_VIDEO_MODEL` | `grok-imagine-image-2.0` / `grok-imagine-video-1.5-lite` | xAI model ids. |
+| `KIE_API_KEY` | — | Kie.ai task API (`/api/v1/jobs/createTask` + `recordInfo`). |
+| `AI_KIE_IMAGE_MODEL` / `AI_KIE_VIDEO_MODEL` | `flux1-kontext` / *(unset)* | Kie model ids — the video id must be copied from docs.kie.ai; without it the Kie video lane stays disabled. |
+| `WIRO_API_KEY`, `WIRO_API_SECRET` | — | Wiro.ai task API (`/v1/Run/{owner}/{model}` + `/v1/Task/Detail`); the secret is only needed for signature projects. |
+| `AI_WIRO_IMAGE_MODEL` / `AI_WIRO_VIDEO_MODEL` | *(unset)* | Required `owner/model` slugs from wiro.ai — never guessed. |
+| `AI_IMAGE_PROVIDERS`, `AI_VIDEO_PROVIDERS` | `google,xai,kie,wiro` / `json2video,xai,kie,wiro` | Backend preference; first configured service that succeeds wins, the rest are fallbacks. |
+| `GEMINI_BASE_URL`, `XAI_BASE_URL`, `KIE_BASE_URL`, `WIRO_BASE_URL` | official endpoints | Tests / self-hosted mock only (`tools/mock-media.mjs`). |
 
 ### Limits
 
@@ -518,6 +565,33 @@ configure. Asking the chat for "an image of …" routes straight to the image mo
 
 ---
 
+## Video generation (JSON2Video)
+
+JSON2Video is **not** a text-to-video model: it renders an MP4 from a JSON *movie* description
+(scenes, text elements, timing). The app therefore does three things:
+
+1. **Storyboard** — a normal chat model turns your prompt into 1–6 short on-screen lines, with an
+   optional title. If no model is reachable, or its reply is not usable JSON, a deterministic
+   storyboard is built from your own sentences instead (the UI says which one was used).
+2. **Compile** — the storyboard is compiled to the documented Movie JSON (`resolution`,
+   `quality`, `fps`, `scenes[].elements[]` with CSS-based `settings`, `client-data`).
+3. **Render** — `POST https://api.json2video.com/v2/movies` with the `x-api-key` header returns a
+   `project` id; `GET /v2/movies?project=…` is polled every 3 s until `done`. The MP4 URL that comes
+   back is the only thing ever shown.
+
+Length is capped by `AI_VIDEO_MAX_SECONDS` (default 20 s), resolution by `AI_VIDEO_RESOLUTION`
+(default `hd`) — both exist so a prompt cannot silently start a long, expensive render.
+
+The render is asynchronous. If it is still running when the request's time budget (≈55 s) is spent,
+the response is `202` with `status: "pending"` and a `project` id; poll again with
+`{"project": "…"}` to collect it. Chat shows the card as "still rendering" rather than pretending.
+
+Not supported (and not claimed): narrated video, voice-over, stock footage, AI scene *generation*
+(JSON2Video composes text/media you supply, it does not invent footage). Adding an image or a voice
+track means extending `buildMovie()` in `lib/server/ai/video.ts` — the wire format is documented.
+
+---
+
 ## Security model
 
 - **Secrets stay server-side.** `lib/server/config.ts` is marked `server-only`; no key is read by a
@@ -638,6 +712,16 @@ status (`400`, `413`, `415`, `422`, `429`, `502`, `503`, `504`).
 `POST` → `{ prompt, model?, size?, n? }` → `{ ok:true, backend, model, images:[{ url, mime }], tookMs }`,
 or `501` when no backend is configured.
 
+### `GET` / `POST /api/generate-video`
+
+`GET` → `{ configured, backend, apiKeyEnv?, resolution, maxSeconds, message }` (no upstream call).
+`GET ?project=ID` → poll one render.
+
+`POST { prompt }` → `{ ok, status: "done", url, durationSeconds, size, project, resolution, waitedMs, backend, storyboard }`
+`POST { project }` → same shape (poll). A render that is still running returns `202` with
+`status: "pending"` and no `url`. `501` when the backend is not configured, `502` when JSON2Video
+rejects the key / the quota is exhausted (the message says so).
+
 ---
 
 ## Test log (what was actually run)
@@ -661,6 +745,18 @@ parsers, both providers and the fallback/collaboration paths were exercised with
 - [x] Wrong provider key → provider shown as *Key rejected* with "The provider rejected the API key in ALPHA_KEY", chat fails with that message instead of a generic one.
 - [x] Browser run (Playwright, 1440×900): landing, chat, model picker grouped by provider, settings panel with both providers, collaboration panel, vision badge, generated image card — **0 console errors**.
 - [x] Unknown model id → `400 model_not_found` with a clear message.
+- [x] Video (JSON2Video, against a local mock of the documented API): `GET /api/generate-video` →
+      `configured: true`; `POST { prompt }` → storyboard authored by `alpha/fast-1`, movie compiled,
+      project created, polled 3× (`queued` → `running` → `done`), MP4 URL returned.
+- [x] Same request through chat → SSE `meta` (`kind: "video-gen"`), `video`, `delta`, `done`; the card
+      carries duration, resolution and who wrote the storyboard.
+- [x] Both chat providers stopped → the standalone endpoint still rendered, with
+      `storyboard.source: "prompt"` (deterministic fallback), proving video does not depend on a model.
+- [x] Wrong `JSON2VIDEO_API_KEY` → `502` "JSON2Video rejected the API key, or your render quota is exhausted…".
+- [x] No `JSON2VIDEO_API_KEY` → `GET` reports `configured: false` with the exact variable name, `POST` → `501`.
+- [x] Image generation verified end-to-end against `tools/mock-media.mjs` for all four services: Google Gemini (inline base64), xAI `/images/generations`, Kie.ai `createTask` + `recordInfo` (resultJson string), Wiro.ai `Run` + `Task/Detail` — each returned a real image and reported its own model id.
+- [x] Video generation verified the same way for xAI, Kie.ai and Wiro.ai (`status: done` + a media URL from the service), with `json2video` untouched as the default path.
+- [x] `GET /api/generate-image` and `GET /api/generate-video` list every service as `ready` / `no key`, including the env-var name and the model id used.
 
 Not tested here (requires real accounts): quality of any specific model's answers, real provider
 quotas/billing, and real OpenRouter image generation end to end (the wire format is implemented for

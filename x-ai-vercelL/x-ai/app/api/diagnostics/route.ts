@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { getRegistry, toPublicProvider, capabilitiesHistogram } from "@/lib/server/ai/registry";
 import { getProviders } from "@/lib/server/ai/providers";
 import { imageBackendStatus } from "@/lib/server/imagegen";
+import { videoBackendStatus } from "@/lib/server/ai/video";
+import { mediaBackends } from "@/lib/server/ai/media";
 import { checkRateLimit, clientKeyFromHeaders, rateLimits } from "@/lib/server/rate-limit";
 import { apiError, errorBody } from "@/lib/server/errors";
 
@@ -54,6 +56,17 @@ export async function GET(req: Request) {
     capabilities: capabilitiesHistogram(snapshot.models),
     issues: snapshot.issues,
     images: imageBackendStatus(snapshot),
+    video: videoBackendStatus(),
+    media: mediaBackends().map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      kinds: entry.kinds,
+      configured: entry.configured,
+      apiKeyEnv: entry.apiKeyEnv,
+      imageModel: entry.imageModel,
+      videoModel: entry.videoModel,
+      message: entry.message,
+    })),
     fetchedAt: snapshot.fetchedAt,
   };
 

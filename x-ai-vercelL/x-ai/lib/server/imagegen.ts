@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { GeneratedImage } from "@/lib/types";
+import { generateImageViaMedia, mediaOrder } from "./ai/media";
 import { getInfraConfig } from "./config";
 import { apiError } from "./errors";
 import { generateImageWithProvider, providerImageStatus } from "./ai/images";
@@ -47,6 +48,22 @@ export function imageBackendStatus(
 ): ImageBackendReport {
   const infra = getInfraConfig();
   const providersConfigured = Boolean(snapshot?.ready);
+
+  // Explicit media backends (Gemini / xAI / Kie / Wiro) win over a discovered
+  // provider image model: the operator configured them on purpose.
+  const media = mediaOrder("image");
+  const mediaFirst = media[0];
+
+  if (infra.imageBackend !== "comfyui" && mediaFirst) {
+    return {
+      configured: true,
+      backend: mediaFirst.id,
+      model: mediaFirst.imageModel,
+      models: media.map((entry) => `${entry.id}:${entry.imageModel ?? "?"}`),
+      message: `${mediaFirst.label}: ${mediaFirst.message}${media.length > 1 ? ` Fallbacks: ${media.slice(1).map((m) => m.label).join(", ")}.` : ""}`,
+      providersConfigured,
+    };
+  }
 
   if (infra.imageBackend === "comfyui" && infra.comfyUiBaseUrl && !infra.comfyUiConfigError) {
     return {
@@ -269,6 +286,19 @@ export async function generateImage(opts: {
   if (!status.configured) {
     throw apiError("image_backend_not_configured", { message: status.message });
   }
+
+  // Explicit media backends first (no `model` pin was requested).
+  if (infra.imageBackend !== "comfyui" && !opts.model && mediaOrder("image").length > 0) {
+    const media = await generateImageViaMedia({ prompt: opts.prompt, size: opts.size, signal: opts.signal });
+    if (media) {
+      return {
+        backend: media.providerLabel,
+        model: media.model,
+        images: media.urls.map((url) => ({ url, mime: url.startsWith("data:") ? url.slice(5, url.indexOf(";")) : undefined })),
+      };
+    }
+  }
+
   if (infra.imageBackend === "comfyui" && infra.comfyUiBaseUrl) {
     return generateWithComfyUi({ prompt: opts.prompt, size: opts.size });
   }

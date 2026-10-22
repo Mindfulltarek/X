@@ -11,6 +11,7 @@ import { ApiError, apiError, errorBody, logServerEvent, newRequestId } from "../
 import { chatRequestSchema, readJsonBody, zodMessage } from "../validate";
 import { GENERAL_CHAT_SYSTEM, IMAGE_PROMPT_DEFAULT_INSTRUCTION, IMAGE_PROMPT_FOLLOWUP_INSTRUCTION, IMAGE_TO_PROMPT_SYSTEM } from "../prompts";
 import { imageBackendStatus } from "../imagegen";
+import { generateVideo, videoBackendStatus } from "./video";
 
 import { classify } from "./classifier";
 import { finishCollaboration, planCollaboration, startPeer, type CollabReport } from "./collaborate";
@@ -187,6 +188,60 @@ async function generateForPrompt(opts: {
     return { images: result.images, model: result.model, backend: result.backend };
   } catch (err) {
     return { images: [], error: err instanceof ApiError ? err : apiError("internal") };
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Video-generation intent lane                                                */
+/* -------------------------------------------------------------------------- */
+
+interface VideoLane {
+  status: "done" | "pending";
+  url?: string;
+  durationSeconds?: number;
+  size?: { width: number; height: number };
+  project: string;
+  storyboard?: {
+    title?: string;
+    scenes: { text: string; duration: number }[];
+    source: "model" | "prompt";
+    author?: string;
+  };
+  error?: ApiError;
+}
+
+async function generateVideoForPrompt(opts: {
+  snapshot: RegistrySnapshot;
+  prompt: string;
+  signal: AbortSignal;
+}): Promise<VideoLane> {
+  const status = videoBackendStatus();
+  if (!status.configured) {
+    return { status: "pending", project: "", error: apiError("video_backend_not_configured", { message: status.message }) };
+  }
+  try {
+    const result = await generateVideo({ prompt: opts.prompt, snapshot: opts.snapshot, signal: opts.signal });
+    return {
+      status: result.status,
+      url: result.url,
+      durationSeconds: result.durationSeconds,
+      size: result.size,
+      project: result.project,
+      storyboard: result.storyboard
+        ? {
+            title: result.storyboard.title,
+            scenes: result.storyboard.scenes.map((scene) => ({ text: scene.text, duration: scene.duration })),
+            source: result.storyboard.source,
+            author: result.storyboard.author,
+          }
+        : undefined,
+    };
+  } catch (err) {
+    return {
+      status: "pending",
+      project: "",
+      error: err instanceof ApiError ? err : apiError("internal"),
+    };
   }
 }
 
@@ -559,6 +614,91 @@ export async function handleChatRequest(req: Request): Promise<Response> {
       logServerEvent({ requestId, route: "chat:image", status: 200, model: lane.model, durationMs: Date.now() - started });
       return new Response(stream, { status: 200, headers: SSE_HEADERS });
     }
+  }
+
+  /* ------------------------- video-generation lane ----------------------- */
+  if (classification.videoGenerationIntent && !body.attachments?.length) {
+    const vstatus = videoBackendStatus();
+    const prompt = body.messages[body.messages.length - 1]?.content ?? "";
+    const lane = await generateVideoForPrompt({
+      snapshot,
+      prompt,
+      signal: AbortSignal.timeout(Math.min(settings.requestTimeoutMs, 115_000)),
+    });
+    if (lane.error) {
+      logServerEvent({
+        requestId,
+        route: "chat:video",
+        code: lane.error.code,
+        durationMs: Date.now() - started,
+        detail: lane.error.details,
+      });
+      return fail(lane.error);
+    }
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const push = (event: ChatStreamEvent) => controller.enqueue(framed(event));
+        push({
+          type: "meta",
+          requestedModel: body.model,
+          model: vstatus.backend ?? "video",
+          provider: vstatus.backend ?? undefined,
+          providerLabel: "JSON2Video",
+          fallbackAttempts: 0,
+          requestId,
+          route: {
+            kind: "video-gen",
+            reason: "asked for a video; rendered through the video backend",
+            candidates: 1,
+            images: 0,
+            documents: 0,
+          },
+          collaboration: { enabled: false, reason: "video rendering" },
+        });
+        push({
+          type: "video",
+          status: lane.status,
+          videos: [
+            {
+              url: lane.url ?? "",
+              durationSeconds: lane.durationSeconds,
+              width: lane.size?.width,
+              height: lane.size?.height,
+              project: lane.project,
+              pending: lane.status === "pending",
+              storyboardSource: lane.storyboard?.source,
+              author: lane.storyboard?.author,
+            },
+          ],
+          project: lane.project,
+          backend: vstatus.backend ?? undefined,
+          resolution: vstatus.resolution,
+          storyboard: lane.storyboard,
+        });
+        push({
+          type: "delta",
+          text:
+            lane.status === "done"
+              ? `Your video is ready (${lane.durationSeconds ?? "?"}s, ${vstatus.resolution}, rendered by JSON2Video).`
+              : "The render is still running on JSON2Video. Ask me again in a moment and I will fetch it.",
+        });
+        push({
+          type: "done",
+          model: vstatus.backend ?? "video",
+          provider: vstatus.backend ?? undefined,
+          fallbackAttempts: 0,
+        });
+        controller.close();
+      },
+    });
+    logServerEvent({
+      requestId,
+      route: "chat:video",
+      status: 200,
+      durationMs: Date.now() - started,
+      detail: `project=${lane.project} status=${lane.status}`,
+    });
+    return new Response(stream, { status: 200, headers: SSE_HEADERS });
   }
 
   /* -------------------------------- route -------------------------------- */

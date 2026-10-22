@@ -131,6 +131,18 @@ function replyFor(body) {
   const sys = systemText(messages);
   const user = userText(messages);
 
+  // Storyboard authoring for the video feature.
+  if (sys.includes("short video storyboard")) {
+    return JSON.stringify({
+      title: "Mock Product Launch",
+      scenes: [
+        { text: "Meet the new thing.", duration: 3, background: "#0B1220" },
+        { text: "Built for speed.", duration: 3, background: "#111C33" },
+        { text: "Try it today.", duration: 3, background: "#1B1030" },
+      ],
+    });
+  }
+
   // Synthesis pass of the collaboration feature.
   if (sys.includes("You compare two independent answers")) {
     return JSON.stringify({
