@@ -64,7 +64,6 @@ export interface MediaBackendInfo {
   configured: boolean;
   apiKeyEnv?: string;
   imageModel?: string;
-  videoModel?: string;
   message: string;
 }
 
@@ -84,25 +83,7 @@ export async function fetchImageBackend(opts: { signal?: AbortSignal } = {}): Pr
   return (await res.json()) as ImageBackendStatus;
 }
 
-export interface VideoBackendStatus {
-  configured: boolean;
-  backend: string | null;
-  providerLabel?: string;
-  apiKeyEnv?: string;
-  resolution: string;
-  maxSeconds: number;
-  message: string;
-  providers?: MediaBackendInfo[];
-}
-
-export async function fetchVideoBackend(opts: { signal?: AbortSignal } = {}): Promise<VideoBackendStatus> {
-  const res = await fetch("/api/generate-video", { cache: "no-store", signal: opts.signal });
-  if (!res.ok) throw await readError(res);
-  return (await res.json()) as VideoBackendStatus;
-}
-
 export interface ChatRequest {
-  mode: "chat" | "image-to-prompt";
   model: string;
   messages: { role: "user" | "assistant"; content: string }[];
   /** Images and documents for the current turn. */

@@ -131,8 +131,7 @@ export type TaskKind =
   | "vision"
   | "document"
   | "web"
-  | "image-gen"
-  | "video-gen";
+  | "image-gen";
 
 export interface Classification {
   kind: TaskKind;
@@ -144,8 +143,6 @@ export interface Classification {
   signals: string[];
   /** Whether the user explicitly asked for an image to be produced. */
   imageGenerationIntent: boolean;
-  /** Whether the user explicitly asked for a video to be produced. */
-  videoGenerationIntent: boolean;
   needsWeb: boolean;
 }
 

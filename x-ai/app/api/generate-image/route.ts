@@ -48,16 +48,14 @@ export async function GET(req: Request) {
     models: status.models,
     message: status.message,
     gatewayConfigured: snapshot.ready,
-    providers: mediaBackends()
-      .filter((entry) => entry.kinds.includes("image"))
-      .map((entry) => ({
+    providers: mediaBackends().map((entry) => ({
         id: entry.id,
         label: entry.label,
         configured: entry.configured,
         apiKeyEnv: entry.apiKeyEnv,
-        imageModel: entry.imageModel,
-        message: entry.message,
-      })),
+      imageModel: entry.imageModel,
+      message: entry.message,
+    })),
   };
   return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
 }

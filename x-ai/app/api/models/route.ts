@@ -8,9 +8,11 @@ import {
   getRegistry,
   invalidateRegistry,
   toPublicModel,
+  modelHealthReason,
   toPublicProvider,
 } from "@/lib/server/ai/registry";
 import { isChatCapable, isImageCapable } from "@/lib/server/ai/router";
+import { pruneCatalogue, pruneModels } from "@/lib/server/ai/catalogue";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,11 +41,12 @@ export async function GET(req: Request) {
   if (refresh) invalidateRegistry();
   const snapshot = await getRegistry({ force: refresh });
 
-  const chatModels = snapshot.models.filter(isChatCapable);
+  const pruned = pruneModels(snapshot.models.filter(isChatCapable), modelHealthReason);
+  const chatModels = pruned.models;
   const vision = chatModels.filter((model) => model.capabilities.has("vision"));
   const images = snapshot.models.filter(isImageCapable);
 
-  const models: PublicModel[] = chatModels
+  const rawModels: PublicModel[] = chatModels
     .map(toPublicModel)
     .map((model) => ({
       id: model.id,
@@ -59,7 +62,15 @@ export async function GET(req: Request) {
       costOut: model.costOut,
     }));
 
+  const catalogue = pruneCatalogue(rawModels);
+  const models: PublicModel[] = catalogue.models;
+
   const providers: PublicProviderStatus[] = snapshot.providers.map(toPublicProvider);
+
+  const hygiene = {
+    duplicatesRemoved: pruned.duplicates + catalogue.removedDuplicate,
+    deadRemoved: pruned.dead + catalogue.removedDead,
+  };
 
   const issues = [
     ...snapshot.issues.filter((issue) => issue.severity === "error").map((issue) => issue.message),
@@ -80,6 +91,7 @@ export async function GET(req: Request) {
     autoAvailable: chatModels.length > 0,
     autoVisionAvailable: vision.length > 0,
     collaborationEnabled: snapshot.settings.collaboration === "review",
+    hygiene,
     issues,
     fetchedAt: snapshot.fetchedAt,
   };

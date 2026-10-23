@@ -9,14 +9,14 @@ import { SiteFooter } from "@/components/landing/SiteFooter";
 export const metadata = {
   title: "X AI — Your images, understood. Your ideas, generated.",
   description:
-    "Turn a reference image into a highly detailed image-generation prompt, or chat with the AI models your deployment connects. Requests are routed automatically to a model that can handle them. Chats are saved in your browser.",
+    "Chat, read images and generate pictures with the AI models your deployment connects. Ask for an image and the router switches to the image model by itself. Chats are saved in your browser.",
 };
 
 const capabilities = [
   {
     icon: Wand2,
-    title: "Image → Prompt",
-    body: "Upload one reference image and get a structured, highly detailed generation prompt: subject, composition, lighting, colour, texture, mood and negative constraints.",
+    title: "Read any image",
+    body: "Upload a photo or screenshot and ask about it. Images are only sent to a model that can actually see, and you can ask for a detailed generation prompt in the same reply.",
     accent: "from-electric-500/25 to-transparent",
   },
   {

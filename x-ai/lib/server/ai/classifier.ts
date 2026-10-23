@@ -49,6 +49,28 @@ const CODE_HINTS = [
   "tailwind",
   "typescript error",
   "linter",
+  // Arabic coding vocabulary — the user writes in Egyptian Arabic.
+  "كود",
+  "برمج",
+  "برمجة",
+  "بايثون",
+  "جافا",
+  "سكريبت",
+  "رياكت",
+  "دالة",
+  "فانكشن",
+  "ايرور",
+  "إيرور",
+  "خطأ في",
+  "بج ",
+  "قاعدة بيانات",
+  "سيرفر",
+  "واجهة برمجية",
+  "html",
+  "سي اس اس",
+  "ديبلوي",
+  "باك اند",
+  "فرونت",
 ];
 
 const REASONING_HINTS = [
@@ -81,6 +103,24 @@ const REASONING_HINTS = [
   "detailed",
   "thesis",
   "essay",
+  // Arabic
+  "اشرح",
+  "فسر",
+  "قارن",
+  "حلل",
+  "ليه ",
+  "ليه؟",
+  "ازاي",
+  "إزاي",
+  "كيف ",
+  "برر",
+  "خطط ل",
+  "استراتيجية",
+  "رايك في",
+  "رأيك في",
+  "قيّم",
+  "قياس",
+  "بالخطوات",
 ];
 
 const SIMPLE_HINTS = [
@@ -95,6 +135,17 @@ const SIMPLE_HINTS = [
   "good night",
   "ok",
   "okay",
+  // Arabic
+  "ازيك",
+  "إزيك",
+  "السلام عليكم",
+  "صباح الخير",
+  "مساء الخير",
+  "شكرا",
+  "شكرًا",
+  "تمام",
+  "اسمك ايه",
+  "مين انت",
 ];
 
 const WEB_HINTS = [
@@ -116,6 +167,21 @@ const WEB_HINTS = [
   "up-to-date",
   "search the web",
   "look up",
+  // Arabic
+  "اخبار",
+  "أخبار",
+  "النهاردة",
+  "اليوم",
+  "دلوقتي",
+  "دلوقت",
+  "احدث",
+  "أحدث",
+  "آخر",
+  "سعر ",
+  "الجو",
+  "الطقس",
+  "بحث في النت",
+  "دور على",
 ];
 
 const IMAGE_GEN_HINTS = [
@@ -135,27 +201,37 @@ const IMAGE_GEN_HINTS = [
   "poster of",
   "wallpaper of",
   "text-to-image",
-];
-
-const VIDEO_GEN_HINTS = [
-  "generate a video",
-  "generate an video",
-  "create a video",
-  "make a video",
-  "make me a video",
-  "render a video",
-  "produce a video",
-  "video of a",
-  "video about",
-  "promo video",
-  "explainer video",
-  "short video",
-  "reel ",
-  "tiktok video",
-  "فيديو",
-  "اعمل فيديو",
-  "اصنع فيديو",
-  "سجل فيديو",
+  "image of",
+  "picture of",
+  "photo of",
+  "logo of",
+  "draw",
+  "sketch",
+  "illustrate",
+  // Arabic — the verb has to be there, otherwise "صورة" alone is just a noun.
+  "اعمل صور",
+  "اعمل لي صور",
+  "اعمللى صور",
+  "اعملي صور",
+  "اصنع صور",
+  "انشئ صور",
+  "أنشئ صور",
+  "انشى صور",
+  "ولوّد صور",
+  "ولد صور",
+  "ارسم",
+  "ارسمل",
+  "ارسملي",
+  "صمم صور",
+  "صمّم صور",
+  "لوجو",
+  "شعار ل",
+  "بوستر",
+  "صوره ل",
+  "صورة ل",
+  "صورة عن",
+  "صوره عن",
+  "خلفية ل",
 ];
 
 const DOCUMENT_HINTS = ["pdf", "docx", "spreadsheet", "attached file", "this document", "the file"];
@@ -216,18 +292,8 @@ export function classify(input: ClassifyInput): Classification {
   }
   // "generate an image prompt" is analysis, not generation.
   if (imageGenerationIntent && /image\s*prompt|prompt\s*for/i.test(lower)) imageGenerationIntent = false;
-
-  /* ---------------- video generation intent ---------------- */
-  let videoGenerationIntent = false;
-  if (!isImagePromptMode && VIDEO_GEN_HINTS.some((hint) => lower.includes(hint))) {
-    videoGenerationIntent = true;
-  }
-  // "how do I make a video", "video ideas", "why is my video…" are questions, not renders.
-  if (videoGenerationIntent && /how (do|to|can)|ideas?\b|why |what is|explain/.test(lower)) {
-    videoGenerationIntent = false;
-  }
-  if (videoGenerationIntent) {
-    // A request for a video is not also a request for a still image.
+  // Reading/describing an image that is already attached is not generation.
+  if (imageGenerationIntent && /(describe|analyse|analyze|read|what is in|اشرح|حلل|وصف|ايه ده|ايه اللي|اقرا|اقرأ)/i.test(lower)) {
     imageGenerationIntent = false;
   }
 
@@ -255,10 +321,7 @@ export function classify(input: ClassifyInput): Classification {
 
   /* ---------------- decide the task kind ---------------- */
   let kind: TaskKind;
-  if (videoGenerationIntent) {
-    kind = "video-gen";
-    signals.push("asked for a video to be rendered");
-  } else if (imageGenerationIntent) {
+  if (imageGenerationIntent) {
     kind = "image-gen";
     prefers.push("image-gen");
     signals.push("asked for a generated image");
@@ -293,7 +356,6 @@ export function classify(input: ClassifyInput): Classification {
     prefers: [...new Set(prefers)],
     signals,
     imageGenerationIntent,
-    videoGenerationIntent,
     needsWeb,
   };
 }
@@ -301,7 +363,6 @@ export function classify(input: ClassifyInput): Classification {
 /** One-sentence, human-readable explanation of a classification. */
 export function describeClassification(classification: Classification): string {
   const kindLabels: Record<TaskKind, string> = {
-    "video-gen": "a video request",
     simple: "a short question",
     general: "a general question",
     reasoning: "an analysis task",

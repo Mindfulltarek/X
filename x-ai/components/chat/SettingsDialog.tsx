@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 
 import type { HealthResponse, ModelsResponse, PublicProviderStatus } from "@/lib/types";
-import type { ImageBackendStatus, MediaBackendInfo, VideoBackendStatus } from "@/lib/client/api";
+import type { ImageBackendStatus, MediaBackendInfo } from "@/lib/client/api";
 
 export interface SettingsDialogProps {
   open: boolean;
@@ -29,7 +29,6 @@ export interface SettingsDialogProps {
   modelsLoading: boolean;
   onRefreshModels: () => void;
   imageBackend: ImageBackendStatus | null;
-  videoBackend: VideoBackendStatus | null;
   onClearHistory: () => void;
   storageWarning: string | null;
   localUsage?: { usage?: number; quota?: number };
@@ -115,7 +114,7 @@ function CapabilityStat({ label, value }: { label: string; value: string | numbe
   );
 }
 
-/** Per-service image/video status: which key is present, which models are used. */
+/** Per-service image status: which key is present, which model is used. */
 function MediaProviders({ list }: { list?: MediaBackendInfo[] }) {
   if (!list || list.length === 0) return null;
   return (
@@ -138,12 +137,8 @@ function MediaProviders({ list }: { list?: MediaBackendInfo[] }) {
             </span>
           </span>
           <span className="mt-0.5 block text-ink-400">{entry.message}</span>
-          {(entry.imageModel || entry.videoModel) && (
-            <span className="mt-0.5 block font-mono text-[0.7rem] text-ink-500">
-              {[entry.imageModel && `image: ${entry.imageModel}`, entry.videoModel && `video: ${entry.videoModel}`]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
+          {entry.imageModel && (
+            <span className="mt-0.5 block font-mono text-[0.7rem] text-ink-500">model: {entry.imageModel}</span>
           )}
         </li>
       ))}
@@ -161,7 +156,6 @@ export function SettingsDialog({
   modelsLoading,
   onRefreshModels,
   imageBackend,
-  videoBackend,
   onClearHistory,
   storageWarning,
   localUsage,
@@ -327,6 +321,14 @@ export function SettingsDialog({
                 ))}
               </div>
             )}
+            {models?.hygiene && models.hygiene.duplicatesRemoved + models.hygiene.deadRemoved > 0 && (
+              <p className="mt-2 text-xs leading-5 text-ink-500">
+                Catalogue cleaned: {models.hygiene.duplicatesRemoved} duplicate row
+                {models.hygiene.duplicatesRemoved === 1 ? "" : "s"} and {models.hygiene.deadRemoved} unusable
+                entr{models.hygiene.deadRemoved === 1 ? "y" : "ies"} removed, so the picker only lists models that
+                can actually answer.
+              </p>
+            )}
             <p className="mt-2 text-xs leading-5 text-ink-500">
               Auto routing is {models?.autoAvailable ? "available" : "unavailable"}. It classifies each request
               (quick question, analysis, coding, image, document) and picks one model that can serve it, with
@@ -349,25 +351,6 @@ export function SettingsDialog({
               detail={imageBackend?.message ?? "Image generation is optional and depends on the providers you connected."}
             />
             <MediaProviders list={imageBackend?.providers} />
-          </section>
-
-          <section aria-labelledby="settings-video">
-            <h3 id="settings-video" className="mb-2 text-[0.72rem] font-bold uppercase tracking-[0.14em] text-ink-300">
-              Video generation
-            </h3>
-            <StatusRow
-              state={videoBackend?.configured ? "ok" : "off"}
-              title={
-                videoBackend?.configured
-                  ? `Configured (${videoBackend.backend} · ${videoBackend.resolution}, up to ${videoBackend.maxSeconds}s)`
-                  : "Not configured"
-              }
-              detail={
-                videoBackend?.message ??
-                "Video rendering is optional. Add JSON2VIDEO_API_KEY, XAI_API_KEY, KIE_API_KEY or WIRO_API_KEY and redeploy."
-              }
-            />
-            <MediaProviders list={videoBackend?.providers} />
           </section>
 
           <section aria-labelledby="settings-storage">

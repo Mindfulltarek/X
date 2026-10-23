@@ -52,7 +52,7 @@ export function imageBackendStatus(
 
   // Explicit media backends (Gemini / xAI / Kie / Wiro) win over a discovered
   // provider image model: the operator configured them on purpose.
-  const media = mediaOrder("image");
+  const media = mediaOrder();
   const mediaFirst = media[0];
 
   if (infra.imageBackend !== "comfyui" && mediaFirst) {
@@ -289,7 +289,7 @@ export async function generateImage(opts: {
   }
 
   // Explicit media backends first (no `model` pin was requested).
-  if (infra.imageBackend !== "comfyui" && !opts.model && mediaOrder("image").length > 0) {
+  if (infra.imageBackend !== "comfyui" && !opts.model && mediaOrder().length > 0) {
     const media = await generateImageViaMedia({ prompt: opts.prompt, size: opts.size, signal: opts.signal });
     if (media) {
       return {

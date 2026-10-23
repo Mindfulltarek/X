@@ -5,27 +5,23 @@ import { readUpstreamError } from "./client";
 import { extractImages } from "./parse";
 
 /**
- * Media backends — image and video generation through services that are *not*
+ * Image backends — image generation through services that are *not*
  * OpenAI-compatible chat providers.
  *
  * Each backend speaks its own documented protocol, and none of them is guessed:
  *
- *  · Google Gemini (image)  POST {base}/models/{model}:generateContent
+ *  · Google Gemini      POST {base}/models/{model}:generateContent
  *        header `x-goog-api-key`, body { contents, generationConfig } with
  *        `responseModalities: ["TEXT","IMAGE"]`; images come back inline as
  *        base64 in `candidates[].content.parts[].inlineData`.
- *  · xAI Grok Imagine (image + video)
- *        images: POST https://api.x.ai/v1/images/generations (OpenAI shape)
- *        video:  POST https://api.x.ai/v1/videos/generations → { request_id },
- *                GET  https://api.x.ai/v1/videos/{id} → { status: done|failed|
- *                expired|pending, video: { url } }
- *  · Kie.ai (image + video)  task API
+ *  · xAI Grok Imagine   POST https://api.x.ai/v1/images/generations (OpenAI shape)
+ *  · Kie.ai             task API
  *        POST https://api.kie.ai/api/v1/jobs/createTask  (Bearer auth)
  *             { model, input: {...}, callBackUrl? } → { code, data: { taskId } }
  *        GET  https://api.kie.ai/api/v1/jobs/recordInfo?taskId=…
  *             → data.state: waiting|queuing|generating|success|fail,
  *               data.resultJson = JSON **string** holding the result URLs.
- *  · Wiro.ai (image + video) task API
+ *  · Wiro.ai            task API
  *        POST https://api.wiro.ai/v1/Run/{owner}/{model}   (x-api-key)
  *             → { result: true, taskid, socketaccesstoken }
  *        POST https://api.wiro.ai/v1/Task/Detail  { tasktoken }
@@ -33,9 +29,9 @@ import { extractImages } from "./parse";
  *                 tasklist[].outputs[].url }
  *
  * Everything is opt-in through environment variables, and the *order* is
- * controlled by `AI_IMAGE_PROVIDERS` / `AI_VIDEO_PROVIDERS`. Nothing is invented:
- * when a model id has no sensible default (Wiro and Kie publish hundreds), the
- * backend stays "not configured" until you set it explicitly.
+ * controlled by `AI_IMAGE_PROVIDERS`. Nothing is invented: when a model id has
+ * no sensible default (Wiro publishes hundreds), the backend stays
+ * "not configured" until you set it explicitly.
  */
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -76,20 +72,16 @@ async function readJson(res: Response): Promise<unknown> {
 /* Status                                                                      */
 /* -------------------------------------------------------------------------- */
 
-export type MediaKind = "image" | "video";
-
 export interface MediaBackendStatus {
   id: "google" | "xai" | "kie" | "wiro";
   label: string;
-  kinds: MediaKind[];
   configured: boolean;
   apiKeyEnv?: string;
   imageModel?: string;
-  videoModel?: string;
   message: string;
 }
 
-/** Every backend the build knows about, with a truthful configured/not state. */
+/** Every image backend the build knows about, with a truthful configured/not state. */
 export function mediaBackends(): MediaBackendStatus[] {
   const google = firstEnv("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_AI_API_KEY");
   const xai = firstEnv("XAI_API_KEY");
@@ -98,17 +90,13 @@ export function mediaBackends(): MediaBackendStatus[] {
 
   const googleImageModel = env("AI_GEMINI_IMAGE_MODEL") ?? "gemini-2.5-flash-image";
   const xaiImageModel = env("AI_XAI_IMAGE_MODEL") ?? "grok-imagine-image-2.0";
-  const xaiVideoModel = env("AI_XAI_VIDEO_MODEL") ?? "grok-imagine-video-1.5-lite";
   const kieImageModel = env("AI_KIE_IMAGE_MODEL") ?? "flux1-kontext";
-  const kieVideoModel = env("AI_KIE_VIDEO_MODEL");
   const wiroImageModel = env("AI_WIRO_IMAGE_MODEL");
-  const wiroVideoModel = env("AI_WIRO_VIDEO_MODEL");
 
   return [
     {
       id: "google",
       label: "Google Gemini (Nano Banana)",
-      kinds: ["image"],
       configured: Boolean(google),
       apiKeyEnv: google?.env,
       imageModel: googleImageModel,
@@ -119,59 +107,44 @@ export function mediaBackends(): MediaBackendStatus[] {
     {
       id: "xai",
       label: "xAI Grok Imagine",
-      kinds: ["image", "video"],
       configured: Boolean(xai),
       apiKeyEnv: xai?.env,
       imageModel: xaiImageModel,
-      videoModel: xaiVideoModel,
       message: xai
-        ? `Images via ${xaiImageModel}, video via ${xaiVideoModel}.`
-        : "Set XAI_API_KEY to enable Grok Imagine image and video generation.",
+        ? `Images via ${xaiImageModel}.`
+        : "Set XAI_API_KEY to enable Grok Imagine image generation.",
     },
     {
       id: "kie",
       label: "Kie.ai",
-      kinds: ["image", "video"],
-      configured: Boolean(kie) && Boolean(kieImageModel || kieVideoModel),
+      configured: Boolean(kie) && Boolean(kieImageModel),
       apiKeyEnv: kie?.env,
       imageModel: kieImageModel,
-      videoModel: kieVideoModel,
-      message: kie
-        ? kieVideoModel
-          ? `Images via ${kieImageModel}, video via ${kieVideoModel}.`
-          : `Images via ${kieImageModel}. Set AI_KIE_VIDEO_MODEL (e.g. a Veo/Kling model) to enable video.`
-        : "Set KIE_API_KEY to enable Kie.ai image and video models.",
+      message: kie ? `Images via ${kieImageModel}.` : "Set KIE_API_KEY to enable Kie.ai image models.",
     },
     {
       id: "wiro",
       label: "Wiro.ai",
-      kinds: ["image", "video"],
-      configured: Boolean(wiro) && Boolean(wiroImageModel || wiroVideoModel),
+      configured: Boolean(wiro) && Boolean(wiroImageModel),
       apiKeyEnv: wiro?.env,
       imageModel: wiroImageModel,
-      videoModel: wiroVideoModel,
       message: wiro
-        ? wiroImageModel || wiroVideoModel
-          ? `Images via ${wiroImageModel ?? "—"}, video via ${wiroVideoModel ?? "—"}.`
-          : "Wiro needs an explicit model: set AI_WIRO_IMAGE_MODEL (e.g. black-forest-labs/flux-2-flex) and/or AI_WIRO_VIDEO_MODEL."
-        : "Set WIRO_API_KEY (and a model) to enable Wiro image and video models.",
+        ? wiroImageModel
+          ? `Images via ${wiroImageModel}.`
+          : "Wiro needs an explicit model: set AI_WIRO_IMAGE_MODEL (e.g. black-forest-labs/flux-2-flex)."
+        : "Set WIRO_API_KEY (and AI_WIRO_IMAGE_MODEL) to enable Wiro image models.",
     },
   ];
 }
 
-/** Backends configured for one kind, in the order the operator asked for. */
-export function mediaOrder(kind: MediaKind): MediaBackendStatus[] {
-  const wanted = order(kind === "image" ? "AI_IMAGE_PROVIDERS" : "AI_VIDEO_PROVIDERS", [
-    "google",
-    "xai",
-    "kie",
-    "wiro",
-  ]);
+/** Image backends, in the order the operator asked for. */
+export function mediaOrder(): MediaBackendStatus[] {
+  const wanted = order("AI_IMAGE_PROVIDERS", ["google", "xai", "kie", "wiro"]);
   const all = mediaBackends();
   const picked: MediaBackendStatus[] = [];
   for (const id of wanted) {
     const backend = all.find((entry) => entry.id === id);
-    if (backend && backend.configured && backend.kinds.includes(kind)) picked.push(backend);
+    if (backend && backend.configured) picked.push(backend);
   }
   return picked;
 }
@@ -191,7 +164,7 @@ export interface MediaAttempt {
 }
 
 export interface MediaResult {
-  kind: MediaKind;
+  kind: "image";
   /** Which backends were tried, in order, and why each earlier one failed. */
   attempts?: MediaAttempt[];
   /** Data URLs or https URLs — whatever the backend returned. */
@@ -385,7 +358,7 @@ async function describe(body: unknown): Promise<string> {
 }
 
 /* -------------------------------------------------------------------------- */
-/* xAI — image (OpenAI shape) and video (native async)                         */
+/* xAI — image (OpenAI shape)                                                  */
 /* -------------------------------------------------------------------------- */
 
 const XAI_BASE = () => (env("XAI_BASE_URL") ?? "https://api.x.ai/v1").replace(/\/+$/, "");
@@ -412,58 +385,6 @@ async function xaiImage(opts: { prompt: string; size?: string; signal: AbortSign
   return { kind: "image", urls, model, provider: "xai", providerLabel: "xAI", waitedMs: Date.now() - started };
 }
 
-async function xaiVideo(opts: { prompt: string; signal: AbortSignal; deadlineMs: number }): Promise<MediaResult> {
-  const key = firstEnv("XAI_API_KEY");
-  if (!key) throw apiError("video_backend_not_configured", { message: "XAI_API_KEY is not set." });
-  const model = env("AI_XAI_VIDEO_MODEL") ?? "grok-imagine-video-1.5-lite";
-  const started = Date.now();
-  const deadline = started + opts.deadlineMs;
-
-  const create = await fetch(`${XAI_BASE()}/videos/generations`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key.value}` },
-    body: JSON.stringify({ model, prompt: opts.prompt }),
-    signal: AbortSignal.any([opts.signal, AbortSignal.timeout(60_000)]),
-    cache: "no-store",
-  });
-  if (!create.ok) throw failed(create.status, await readUpstreamError(create), "xAI");
-
-  const created = (await readJson(create)) as { request_id?: string; id?: string };
-  const requestId = created?.request_id ?? created?.id;
-  if (!requestId) throw apiError("invalid_response", { message: "xAI did not return a request id." });
-
-  while (Date.now() < deadline) {
-    await sleep(POLL_MS);
-    const poll = await fetch(`${XAI_BASE()}/videos/${encodeURIComponent(requestId)}`, {
-      headers: { Authorization: `Bearer ${key.value}` },
-      signal: AbortSignal.any([opts.signal, AbortSignal.timeout(30_000)]),
-      cache: "no-store",
-    });
-    if (!poll.ok) continue;
-    const body = (await readJson(poll)) as { status?: string; video?: { url?: string }; url?: string };
-    const url = body?.video?.url ?? body?.url;
-    if (body?.status === "done" && url) {
-      return {
-        kind: "video",
-        urls: [url],
-        model,
-        provider: "xai",
-        providerLabel: "xAI",
-        waitedMs: Date.now() - started,
-        meta: { requestId },
-      };
-    }
-    if (body?.status === "failed" || body?.status === "expired") {
-      throw apiError("upstream_unavailable", { message: `xAI video ${body.status}.`, details: `request ${requestId}` });
-    }
-  }
-  throw apiError("upstream_timeout", {
-    message: "The xAI render is still running. Try again in a moment.",
-    details: `request ${requestId}`,
-    retryable: true,
-  });
-}
-
 /* -------------------------------------------------------------------------- */
 /* Kie.ai — task API                                                           */
 /* -------------------------------------------------------------------------- */
@@ -486,28 +407,18 @@ function collectUrls(input: unknown, out: string[] = []): string[] {
 }
 
 async function kieTask(opts: {
-  kind: MediaKind;
   prompt: string;
   signal: AbortSignal;
   deadlineMs: number;
 }): Promise<MediaResult> {
   const key = firstEnv("KIE_API_KEY", "KIEAI_API_KEY");
   if (!key) throw apiError("not_configured", { message: "KIE_API_KEY is not set." });
-  const model =
-    opts.kind === "image" ? env("AI_KIE_IMAGE_MODEL") ?? "flux1-kontext" : env("AI_KIE_VIDEO_MODEL");
-  if (!model) {
-    throw apiError("not_configured", {
-      message: "Set AI_KIE_VIDEO_MODEL to the Kie.ai video model you want (for example a Veo or Kling id from docs.kie.ai).",
-    });
-  }
-
-  const input: Record<string, unknown> = { prompt: opts.prompt };
-  if (opts.kind === "image") {
-    input.aspect_ratio = env("AI_KIE_IMAGE_ASPECT_RATIO") ?? "1:1";
-    input.output_format = "png";
-  } else {
-    input.aspect_ratio = env("AI_KIE_VIDEO_ASPECT_RATIO") ?? "16:9";
-  }
+  const model = env("AI_KIE_IMAGE_MODEL") ?? "flux1-kontext";
+  const input: Record<string, unknown> = {
+    prompt: opts.prompt,
+    aspect_ratio: env("AI_KIE_IMAGE_ASPECT_RATIO") ?? "1:1",
+    output_format: "png",
+  };
 
   const started = Date.now();
   const deadline = started + opts.deadlineMs;
@@ -553,7 +464,7 @@ async function kieTask(opts: {
       const urls = collectUrls(result).filter((url) => !/^data:image\/(jpeg|jpg|png|webp)?;?$/.test(url));
       if (urls.length === 0) throw apiError("invalid_response", { message: "Kie.ai returned no media URL." });
       return {
-        kind: opts.kind,
+        kind: "image",
         urls,
         model,
         provider: "kie",
@@ -595,19 +506,11 @@ function wiroHeaders(): Record<string, string> {
   };
 }
 
-async function wiroTask(opts: {
-  kind: MediaKind;
-  prompt: string;
-  signal: AbortSignal;
-  deadlineMs: number;
-}): Promise<MediaResult> {
-  const model = opts.kind === "image" ? env("AI_WIRO_IMAGE_MODEL") : env("AI_WIRO_VIDEO_MODEL");
+async function wiroTask(opts: { prompt: string; signal: AbortSignal; deadlineMs: number }): Promise<MediaResult> {
+  const model = env("AI_WIRO_IMAGE_MODEL");
   if (!model) {
     throw apiError("not_configured", {
-      message:
-        opts.kind === "image"
-          ? "Set AI_WIRO_IMAGE_MODEL (owner/model slug from wiro.ai, e.g. black-forest-labs/flux-2-flex)."
-          : "Set AI_WIRO_VIDEO_MODEL (owner/model slug from wiro.ai, e.g. an owner/video-model id).",
+      message: "Set AI_WIRO_IMAGE_MODEL (owner/model slug from wiro.ai, e.g. black-forest-labs/flux-2-flex).",
     });
   }
 
@@ -661,7 +564,7 @@ async function wiroTask(opts: {
         });
       }
       return {
-        kind: opts.kind,
+        kind: "image",
         urls,
         model,
         provider: "wiro",
@@ -695,7 +598,7 @@ export async function generateImageViaMedia(opts: {
   size?: string;
   signal: AbortSignal;
 }): Promise<MediaResult | null> {
-  const backends = mediaOrder("image");
+  const backends = mediaOrder();
   if (backends.length === 0) return null;
 
   const attempts: MediaAttempt[] = [];
@@ -709,8 +612,8 @@ export async function generateImageViaMedia(opts: {
           : backend.id === "xai"
             ? await xaiImage({ prompt: opts.prompt, size: opts.size, signal: opts.signal })
             : backend.id === "kie"
-              ? await kieTask({ kind: "image", prompt: opts.prompt, signal: opts.signal, deadlineMs: 110_000 })
-              : await wiroTask({ kind: "image", prompt: opts.prompt, signal: opts.signal, deadlineMs: 110_000 });
+              ? await kieTask({ prompt: opts.prompt, signal: opts.signal, deadlineMs: 110_000 })
+              : await wiroTask({ prompt: opts.prompt, signal: opts.signal, deadlineMs: 110_000 });
       logServerEvent({
         requestId: `media-image-${backend.id}`,
         route: "media:image",
@@ -743,59 +646,4 @@ export async function generateImageViaMedia(opts: {
     .join(" · ");
   if (firstError) firstError.details = summary.slice(0, 400) || firstError.details;
   throw firstError ?? apiError("image_backend_not_configured");
-}
-
-/** Same for video: `AI_VIDEO_PROVIDERS` order, first success wins. */
-export async function generateVideoViaMedia(opts: {
-  prompt: string;
-  signal: AbortSignal;
-  deadlineMs?: number;
-}): Promise<MediaResult | null> {
-  const backends = mediaOrder("video");
-  if (backends.length === 0) return null;
-
-  const deadlineMs = opts.deadlineMs ?? 110_000;
-  const attempts: MediaAttempt[] = [];
-  let firstError: ApiError | null = null;
-
-  for (const backend of backends) {
-    try {
-      const result =
-        backend.id === "xai"
-          ? await xaiVideo({ prompt: opts.prompt, signal: opts.signal, deadlineMs })
-          : backend.id === "kie"
-            ? await kieTask({ kind: "video", prompt: opts.prompt, signal: opts.signal, deadlineMs })
-            : await wiroTask({ kind: "video", prompt: opts.prompt, signal: opts.signal, deadlineMs });
-      logServerEvent({
-        requestId: `media-video-${backend.id}`,
-        route: "media:video",
-        status: 200,
-        model: result.model,
-        durationMs: result.waitedMs,
-      });
-      attempts.push({ id: backend.id, label: backend.label, ok: true });
-      return { ...result, attempts };
-    } catch (err) {
-      const apiErr = err instanceof ApiError ? err : apiError("internal");
-      const reason = sanitizeReason(
-        apiErr.details ?? apiErr.message,
-        apiErr.code === "upstream_timeout" ? "timed out" : "failed",
-      );
-      logServerEvent({
-        requestId: `media-video-${backend.id}`,
-        route: "media:video",
-        code: apiErr.code,
-        detail: `${backend.label}: ${reason}`.slice(0, 180),
-      });
-      attempts.push({ id: backend.id, label: backend.label, ok: false, code: apiErr.code, reason });
-      if (!firstError) firstError = apiErr;
-    }
-  }
-
-  const summary = attempts
-    .filter((attempt) => !attempt.ok)
-    .map((attempt) => `${attempt.label}: ${attempt.reason}`)
-    .join(" · ");
-  if (firstError) firstError.details = summary.slice(0, 400) || firstError.details;
-  throw firstError ?? apiError("video_backend_not_configured");
 }

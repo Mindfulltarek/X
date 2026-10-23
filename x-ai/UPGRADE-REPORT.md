@@ -296,3 +296,11 @@ build, and a browser run (0 console errors) — screenshots `chat-video.png`, `s
 quality. Nothing here claims otherwise.
 
 **Enable it:** add `JSON2VIDEO_API_KEY` in Vercel → Environment Variables (Production) → redeploy.
+
+## Addendum (2026-10-22, final): video generation removed
+
+The video lane (JSON2Video + xAI/Kie/Wiro video) was removed at the owner's request. Deleted:
+`lib/server/ai/video.ts`, `app/api/generate-video/route.ts`, the `video-gen` task kind, the `video`
+SSE event, `VideoAsset` and the video card in the UI, every `AI_VIDEO_*` / `JSON2VIDEO_*` variable.
+Image generation through Gemini / xAI / Kie.ai / Wiro.ai is unchanged. The app is now: chat with
+routing + vision + documents, and image generation.

@@ -18,7 +18,7 @@ import { XBrand, XMark } from "@/components/brand/XMark";
 import { Composer, type PendingAttachment } from "./Composer";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { DropOverlay } from "./DropOverlay";
-import { MessageBubble, GeneratedImageCard, GeneratedVideoCard } from "./MessageBubble";
+import { MessageBubble, GeneratedImageCard } from "./MessageBubble";
 import { SettingsDialog } from "./SettingsDialog";
 import { Sidebar } from "./Sidebar";
 
@@ -26,10 +26,8 @@ import type {
   AttachmentMeta,
   ChatStreamEvent,
   CollabInfo,
-  VideoAsset,
   HealthResponse,
   ModelsResponse,
-  OperationMode,
   StoredChat,
   StoredMessage,
 } from "@/lib/types";
@@ -37,11 +35,9 @@ import {
   fetchHealth,
   fetchImageBackend,
   fetchModels,
-  fetchVideoBackend,
   generateImage,
   streamChat,
   type ImageBackendStatus,
-  type VideoBackendStatus,
 } from "@/lib/client/api";
 import {
   checkStorage,
@@ -121,7 +117,6 @@ export function ChatApp() {
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
-  const [mode, setMode] = useState<OperationMode>("chat");
   const [model, setModel] = useState("auto");
 
   const [models, setModels] = useState<ModelsResponse | null>(null);
@@ -129,7 +124,6 @@ export function ChatApp() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
   const [imageBackend, setImageBackend] = useState<ImageBackendStatus | null>(null);
-  const [videoBackend, setVideoBackend] = useState<VideoBackendStatus | null>(null);
 
   const [streaming, setStreaming] = useState<{ messageId: string; text: string; status: string } | null>(null);
   const [banner, setBanner] = useState<Banner | null>(null);
@@ -165,7 +159,6 @@ export function ChatApp() {
 
   useEffect(() => {
     const settings = readSettings();
-    setMode(settings.mode);
     setModel(settings.model);
     setSidebarCollapsed(settings.sidebarCollapsed);
     setSettingsLoaded(true);
@@ -205,11 +198,6 @@ export function ChatApp() {
         setImageBackend(await fetchImageBackend());
       } catch {
         setImageBackend(null);
-      }
-      try {
-        setVideoBackend(await fetchVideoBackend());
-      } catch {
-        setVideoBackend(null);
       }
     })();
     // applyChats is stable, so the bootstrap runs once on mount.
@@ -424,29 +412,11 @@ export function ChatApp() {
     [applyChats],
   );
 
-  const latestImageDataUrl = useCallback(async (chatMessages: StoredMessage[]): Promise<string | undefined> => {
-    for (let i = chatMessages.length - 1; i >= 0; i -= 1) {
-      const atts = chatMessages[i].attachments;
-      if (atts && atts.length > 0) {
-        try {
-          const stored = await getAttachment(atts[atts.length - 1].id);
-          if (stored?.blob) return await dataUrlFromBlob(stored.blob);
-        } catch {
-          return undefined;
-        }
-      }
-    }
-    return undefined;
-  }, []);
-
-  /* ------------------------------- sending ------------------------------- */
-
   const runAssistant = useCallback(
     async (opts: {
       chatId: string;
       history: StoredMessage[];
       attachments?: { name: string; mime: string; dataUrl: string }[];
-      requestMode: OperationMode;
       requestModel: string;
       statusLabel: string;
     }) => {
@@ -457,7 +427,6 @@ export function ChatApp() {
       let servedModel: string | undefined;
       let servedProvider: string | undefined;
       let collab: CollabInfo | null = null;
-      let renderedVideos: VideoAsset[] = [];
       let fallbackUsed = false;
       let visionUsed = false;
       let documentsUsed = 0;
@@ -482,7 +451,6 @@ export function ChatApp() {
       try {
         await streamChat(
           {
-            mode: opts.requestMode,
             model: opts.requestModel,
             messages: apiMessages,
             attachments: opts.attachments,
@@ -515,14 +483,6 @@ export function ChatApp() {
                     disputes: event.disputes,
                   };
                 }
-              } else if (event.type === "video") {
-                renderedVideos = event.videos.map((video) => ({
-                  ...video,
-                  storyboardSource: event.storyboard?.source ?? video.storyboardSource,
-                  author: event.storyboard?.author ?? video.author,
-                }));
-                servedProvider = event.backend ?? servedProvider;
-                setStreaming((prev) => (prev ? { ...prev, status: "Finishing video…" } : prev));
               } else if (event.type === "image") {
                 generatedImages = event.images.map((image) => ({ url: image.url, mime: image.mime }));
                 servedModel = event.model ?? servedModel;
@@ -585,7 +545,6 @@ export function ChatApp() {
         provider: servedProvider,
         requestedModel: opts.requestModel,
         collab,
-        videos: renderedVideos.length > 0 ? renderedVideos : undefined,
         fallbackUsed,
         visionUsed,
         documentsUsed: documentsUsed || undefined,
@@ -629,7 +588,6 @@ export function ChatApp() {
         createdAt: now,
         updatedAt: now,
         model,
-        mode,
         messageCount: 0,
         preview: "",
       };
@@ -695,17 +653,11 @@ export function ChatApp() {
       setStorageWarning("This message could not be saved locally.");
     }
 
-    /* In image→prompt mode a follow-up turn can reuse the last attached image. */
-    if (requestAttachments.length === 0 && mode === "image-to-prompt") {
-      const previous = await latestImageDataUrl(messages);
-      if (previous) requestAttachments.push({ name: "reference-image", mime: "image/png", dataUrl: previous });
-    }
     const hasImageForRequest = requestAttachments.some((item) => item.mime.startsWith("image/"));
 
     await touchChat(chatId, {
       title: existingChat?.messageCount === 0 ? titleFrom(text, hasImage) : undefined,
       model,
-      mode,
       preview: previewFrom(text),
       messageCount: history.length,
     });
@@ -714,7 +666,6 @@ export function ChatApp() {
       chatId,
       history,
       attachments: requestAttachments.length > 0 ? requestAttachments : undefined,
-      requestMode: mode,
       requestModel: model,
       statusLabel: hasImageForRequest ? "Analysing image…" : "Thinking…",
     });
@@ -725,9 +676,7 @@ export function ChatApp() {
     attachmentBusy,
     chats,
     draft,
-    latestImageDataUrl,
     messages,
-    mode,
     model,
     runAssistant,
     streaming,
@@ -766,16 +715,11 @@ export function ChatApp() {
           : undefined;
       const requestAttachments: { name: string; mime: string; dataUrl: string }[] = [];
       if (attachmentFromLastUser) requestAttachments.push(attachmentFromLastUser);
-      if (requestAttachments.length === 0 && mode === "image-to-prompt") {
-        const previous = await latestImageDataUrl(priorHistory);
-        if (previous) requestAttachments.push({ name: "reference-image", mime: "image/png", dataUrl: previous });
-      }
 
       await runAssistant({
         chatId: activeChatId,
         history: priorHistory,
         attachments: requestAttachments.length > 0 ? requestAttachments : undefined,
-        requestMode: mode,
         requestModel: model,
         statusLabel: requestAttachments.some((item) => item.mime.startsWith("image/"))
           ? "Analysing image…"
@@ -783,7 +727,7 @@ export function ChatApp() {
       });
       await touchChat(activeChatId, { messageCount: priorHistory.length + 1 });
     },
-    [activeChatId, latestImageDataUrl, messages, mode, model, runAssistant, streaming, touchChat],
+    [activeChatId, messages, model, runAssistant, streaming, touchChat],
   );
 
   const handleGenerateImage = useCallback(
@@ -997,11 +941,6 @@ export function ChatApp() {
     })();
   }, []);
 
-  const changeMode = useCallback((next: OperationMode) => {
-    setMode(next);
-    writeSettings({ mode: next });
-  }, []);
-
   const changeModel = useCallback((next: string) => {
     setModel(next);
     writeSettings({ model: next });
@@ -1022,9 +961,10 @@ export function ChatApp() {
 
   const suggestionChips = useMemo(
     () => [
-      { label: "Analyse an image into a prompt", mode: "image-to-prompt" as OperationMode, prompt: "", attach: true },
-      { label: "Explain a concept simply", mode: "chat" as OperationMode, prompt: "Explain how a transformer model works, in plain language." },
-      { label: "Draft a detailed brief", mode: "chat" as OperationMode, prompt: "Help me write a creative brief for a product photoshoot." },
+      { label: "اعمل صورة قطة على الشاطئ", prompt: "اعمل صورة قطة على الشاطئ وقت الغروب" },
+      { label: "اشرح لي فكرة ببساطة", prompt: "اشرح لي إزاي بيشتغل الـ transformer ببساطة" },
+      { label: "اكتب لي كود", prompt: "اكتب لي كود بايثون يقرا ملف CSV ويطبع الملخص" },
+      { label: "اقرأ صورة (ارفعها الأول)", prompt: "ايه اللي في الصورة دي؟", attach: true },
     ],
     [],
   );
@@ -1189,10 +1129,14 @@ export function ChatApp() {
                 <div className="absolute inset-0 rounded-3xl bg-electric-500/20 blur-2xl" aria-hidden />
                 <XMark size={72} />
               </div>
-              <h1 className="text-2xl font-semibold tracking-tight text-ink-100">Welcome to X AI</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-ink-100">أهلاً بيك في X AI</h1>
               <p className="mt-2 max-w-md text-sm leading-6 text-ink-400">
-                Attach a reference image to turn it into a detailed image-generation prompt, or just start a
-                conversation. Chats are saved in this browser — no account needed.
+                اكتب طلبك بالعربي أو الإنجليزي. اسأل، أو ارفع صورة، أو قول «اعمل صورة …» وهيختار الموديل
+                الصح لوحده — مش محتاج تظبط حاجة.
+              </p>
+              <p className="mt-1 max-w-md text-[0.78rem] leading-5 text-ink-500">
+                Ask anything, upload an image to have it read, or ask for a picture and the router switches to the
+                image model automatically. Chats stay in this browser — no account needed.
               </p>
               <div className="mt-6 flex flex-wrap justify-center gap-2">
                 {suggestionChips.map((chip) => (
@@ -1200,7 +1144,6 @@ export function ChatApp() {
                     key={chip.label}
                     type="button"
                     onClick={() => {
-                      changeMode(chip.mode);
                       if (chip.prompt) setDraft(chip.prompt);
                       inputRef.current?.focus();
                     }}
@@ -1247,9 +1190,7 @@ export function ChatApp() {
                         label={`Generated with ${message.model ?? "the configured backend"}`}
                       />
                     ))}
-                  {(message.videos ?? []).map((video, index) => (
-                    <GeneratedVideoCard key={`${video.project ?? video.url}-${index}`} video={video} />
-                  ))}
+
                 </MessageBubble>
               ))}
 
@@ -1294,8 +1235,6 @@ export function ChatApp() {
               attachment={attachment}
               onAttach={(file) => void handleAttach(file)}
               onRemoveAttachment={() => setAttachment(null)}
-              mode={mode}
-              onModeChange={changeMode}
               model={model}
               models={models?.models ?? []}
               onModelChange={changeModel}
@@ -1323,7 +1262,6 @@ export function ChatApp() {
         modelsLoading={modelsLoading}
         onRefreshModels={() => void refreshModels()}
         imageBackend={imageBackend}
-        videoBackend={videoBackend}
         onClearHistory={requestClearAll}
         storageWarning={storageWarning}
         localUsage={localUsage}

@@ -40,23 +40,6 @@ export const chatRequestSchema = z
     return value;
   });
 
-export const generateVideoRequestSchema = z
-  .object({
-    prompt: z.string().trim().min(3).max(2_000).optional(),
-    /** Poll an existing render instead of starting a new one. */
-    project: z
-      .string()
-      .trim()
-      .min(4)
-      .max(64)
-      .regex(/^[A-Za-z0-9_-]+$/, "project must be an id returned by POST /api/generate-video")
-      .optional(),
-  })
-  .strict()
-  .refine((value) => Boolean(value.prompt) !== Boolean(value.project), {
-    message: "Send either a prompt (to render) or a project id (to poll), not both.",
-  });
-
 export const generateImageRequestSchema = z
   .object({
     prompt: z.string().trim().min(3).max(8_000),

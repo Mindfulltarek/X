@@ -29,22 +29,6 @@ export interface CollabInfo {
   disputes?: { topic: string; primary: string; peer: string; resolution: string }[];
 }
 
-/** A rendered video returned by the video backend. */
-export interface VideoAsset {
-  url: string;
-  /** Length of the render in seconds, as reported by the backend. */
-  durationSeconds?: number;
-  width?: number;
-  height?: number;
-  /** Backend project id, so a pending render can be polled later. */
-  project?: string;
-  /** True while the render is still running on the backend. */
-  pending?: boolean;
-  /** How the storyboard was produced: by a chat model or straight from the prompt. */
-  storyboardSource?: "model" | "prompt";
-  author?: string;
-}
-
 export interface StoredMessage {
   id: string;
   chatId: string;
@@ -58,8 +42,6 @@ export interface StoredMessage {
   provider?: string;
   /** What the user asked for: `auto` or a `provider::model` key. */
   requestedModel?: string;
-  /** Videos rendered for this message. */
-  videos?: VideoAsset[];
   /** Second-opinion report, when collaboration ran. */
   collab?: CollabInfo | null;
   /** True when a fallback model produced this answer. */
@@ -80,7 +62,6 @@ export interface StoredChat {
   createdAt: number;
   updatedAt: number;
   model: string;
-  mode: OperationMode;
   messageCount: number;
   /** Denormalised snippet of the last message for the recent-chats list. */
   preview: string;
@@ -151,6 +132,8 @@ export interface ModelsResponse {
   collaborationEnabled: boolean;
   /** Non-fatal configuration problems, safe to display. */
   issues: string[];
+  /** Catalogue hygiene: rows folded away because they were dead or duplicates. */
+  hygiene?: { duplicatesRemoved: number; deadRemoved: number };
   fetchedAt: number;
 }
 
@@ -167,7 +150,8 @@ export interface ChatAttachmentInput {
 }
 
 export interface ChatRequestBody {
-  mode: OperationMode;
+  /** Optional server-side mode; the UI always sends chat. */
+  mode?: OperationMode;
   model: string;
   messages: ChatMessagePayload[];
   /** Up to a handful of images / documents for the current turn. */
@@ -228,15 +212,6 @@ export type ChatStreamEvent =
       backend?: string;
     }
   | {
-      type: "video";
-      status: "done" | "pending";
-      videos: VideoAsset[];
-      project?: string;
-      backend?: string;
-      resolution?: string;
-      storyboard?: { title?: string; scenes: { text: string; duration: number }[]; source: "model" | "prompt"; author?: string };
-    }
-  | {
       type: "done";
       model: string;
       provider?: string;
@@ -252,52 +227,16 @@ export interface GenerateImageRequestBody {
   n?: number;
 }
 
-export interface GenerateVideoRequestBody {
-  prompt: string;
-  /** Progressively poll an existing render instead of starting a new one. */
-  project?: string;
-}
-
-/** One image/video service, as reported to the browser (never a key). */
+/** One image service, as reported to the browser (never a key). */
 export interface MediaBackendInfo {
   id: string;
   label: string;
-  kinds: string[];
   configured: boolean;
   apiKeyEnv?: string;
   imageModel?: string;
-  videoModel?: string;
   message: string;
 }
 
-export interface VideoBackendPayload {
-  configured: boolean;
-  backend: string | null;
-  providerLabel?: string;
-  apiKeyEnv?: string;
-  resolution: string;
-  maxSeconds: number;
-  message: string;
-  /** Every video-capable service and whether it is configured. */
-  providers?: MediaBackendInfo[];
-}
-
-export interface GenerateVideoResponse {
-  ok: boolean;
-  status: "done" | "pending";
-  provider?: string;
-  providerLabel?: string;
-  warnings?: MediaWarning[];
-  url?: string;
-  durationSeconds?: number;
-  size?: { width: number; height: number };
-  project: string;
-  resolution: string;
-  waitedMs: number;
-  backend: string | null;
-  storyboard?: { title?: string; scenes: { text: string; duration: number }[]; source: "model" | "prompt"; author?: string };
-  error?: { code: string; message: string } | null;
-}
 
 export interface GeneratedImage {
   /** Data URL (preferred) or an HTTPS URL returned by the backend. */

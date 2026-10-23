@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, FileText, ImagePlus, Loader2, Square, X } from "lucide-react";
 
-import type { OperationMode, PublicModel } from "@/lib/types";
+import type { PublicModel } from "@/lib/types";
 import {
   acceptAttribute,
   MAX_DOCUMENT_BYTES,
@@ -22,8 +22,6 @@ export interface ComposerProps {
   attachment: PendingAttachment | null;
   onAttach: (file: File) => void;
   onRemoveAttachment: () => void;
-  mode: OperationMode;
-  onModeChange: (mode: OperationMode) => void;
   model: string;
   models: PublicModel[];
   onModelChange: (model: string) => void;
@@ -33,15 +31,42 @@ export interface ComposerProps {
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
-function groupByProvider(models: PublicModel[]): [string, PublicModel[]][] {
-  const groups = new Map<string, PublicModel[]>();
+/**
+ * The picker groups models by *what they are good at*, not by which company
+ * hosts them, and each model appears exactly once (no duplicates).
+ */
+const ROLE_GROUPS: { key: string; label: string }[] = [
+  { key: "vision", label: "قراءة الصور · Vision" },
+  { key: "reasoning", label: "تحليل وتفكير · Analysis" },
+  { key: "coding", label: "برمجة · Code" },
+  { key: "fast", label: "سريع · Fast" },
+  { key: "general", label: "عام · General" },
+];
+
+function roleOf(model: PublicModel): string {
+  const caps = model.capabilities ?? [];
+  if (model.vision || caps.includes("vision")) return "vision";
+  if (caps.includes("coding")) return "coding";
+  if (caps.includes("reasoning")) return "reasoning";
+  if (caps.includes("fast")) return "fast";
+  return "general";
+}
+
+function groupByRole(models: PublicModel[]): [string, PublicModel[]][] {
+  const buckets = new Map<string, PublicModel[]>();
+  const seen = new Set<string>();
   for (const model of models) {
-    const label = model.providerLabel ?? model.provider ?? "Models";
-    const list = groups.get(label);
+    const key = roleOf(model);
+    if (seen.has(model.id)) continue;
+    seen.add(model.id);
+    const list = buckets.get(key);
     if (list) list.push(model);
-    else groups.set(label, [model]);
+    else buckets.set(key, [model]);
   }
-  return [...groups.entries()];
+  return ROLE_GROUPS.filter((group) => (buckets.get(group.key)?.length ?? 0) > 0).map((group) => [
+    group.label,
+    buckets.get(group.key) ?? [],
+  ]);
 }
 
 export function Composer({
@@ -53,8 +78,6 @@ export function Composer({
   attachment,
   onAttach,
   onRemoveAttachment,
-  mode,
-  onModeChange,
   model,
   models,
   onModelChange,
@@ -187,38 +210,6 @@ export function Composer({
                 e.target.value = "";
               }}
             />
-            <div
-              className="flex items-center gap-1 rounded-xl border border-electric-400/30 bg-midnight-950/60 p-0.5"
-              role="group"
-              aria-label="Conversation mode"
-            >
-              <button
-                type="button"
-                onClick={() => onModeChange("chat")}
-                aria-pressed={mode === "chat"}
-                className={[
-                  "rounded-lg px-2.5 py-1.5 text-[0.8rem] font-semibold transition",
-                  mode === "chat"
-                    ? "neon-chip"
-                    : "text-ink-300 hover:bg-white/5 hover:text-white",
-                ].join(" ")}
-              >
-                Chat
-              </button>
-              <button
-                type="button"
-                onClick={() => onModeChange("image-to-prompt")}
-                aria-pressed={mode === "image-to-prompt"}
-                className={[
-                  "rounded-lg px-2.5 py-1.5 text-[0.8rem] font-semibold transition",
-                  mode === "image-to-prompt"
-                    ? "neon-chip"
-                    : "text-ink-300 hover:bg-white/5 hover:text-white",
-                ].join(" ")}
-              >
-                Image → Prompt
-              </button>
-            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -232,8 +223,8 @@ export function Composer({
               className="max-w-[12rem] truncate rounded-lg border border-white/15 bg-midnight-950/85 px-2.5 py-2 text-[0.8rem] font-medium text-ink-100 focus:border-electric-400/70 focus:outline-none"
             >
               <option value="auto">Auto — smart routing</option>
-              {groupByProvider(models).map(([providerLabel, list]) => (
-                <optgroup key={providerLabel} label={providerLabel}>
+              {groupByRole(models).map(([roleLabel, list]) => (
+                <optgroup key={roleLabel} label={roleLabel}>
                   {list.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.label}
@@ -279,7 +270,7 @@ export function Composer({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={
-            mode === "image-to-prompt" ? "Describe the prompt you need…" : "Ask anything, or drop an image or document…"
+            "Ask anything — or say “اعمل صورة …” and I will switch to the image generator myself"
           }
           className="max-h-[240px] w-full resize-none border-t border-white/[0.07] bg-transparent px-4 pb-2 pt-3.5 text-base leading-7 text-white placeholder:text-ink-400 focus:outline-none"
           rows={2}

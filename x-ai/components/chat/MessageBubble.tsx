@@ -8,7 +8,6 @@ import {
   Download,
   Eye,
   FileText,
-  Film,
   GitBranch,
   ImageIcon,
   RefreshCw,
@@ -19,7 +18,7 @@ import {
 
 import { Markdown } from "@/components/Markdown";
 import { XMark } from "@/components/brand/XMark";
-import type { StoredMessage, VideoAsset } from "@/lib/types";
+import type { StoredMessage } from "@/lib/types";
 
 function timeLabel(ts: number): string {
   try {
@@ -178,16 +177,17 @@ export function MessageBubble({
         {/* Meta row */}
         <div className={`mt-1.5 flex flex-wrap items-center gap-2 px-1 text-[0.75rem] font-medium text-ink-300 ${isUser ? "flex-row-reverse" : ""}`}>
           <span>{timeLabel(message.createdAt)}</span>
-          {!isUser && (message.model || message.requestedModel) && (
+          {!isUser &&
+            isMediaMessage(message) === false &&
+            Boolean(message.model?.trim() || message.requestedModel) && (
             <span
               className="inline-flex items-center gap-1 rounded-full border border-electric-400/40 bg-electric-500/10 px-2 py-0.5 text-cyan-100"
               title={`Model that produced this answer: ${message.model ?? message.requestedModel}`}
             >
               <Sparkles size={10} className="text-cyan-accent" aria-hidden />
-              {message.model ?? message.requestedModel}
+              {message.model?.trim() || message.requestedModel}
             </span>
           )}
-          {!isUser && message.provider && <span className="text-ink-400">via {message.provider}</span>}
           {!isUser && message.fallbackUsed && (
             <span
               className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-amber-100"
@@ -213,17 +213,14 @@ export function MessageBubble({
               {(message.documentsUsed ?? 0) === 1 ? "" : "s"}
             </span>
           )}
-          {!isUser && message.requestedModel?.startsWith("auto") && message.model && (
-            <span className="text-ink-500">(router picked it)</span>
-          )}
 
-          {!isUser && text && !streaming && (
+          {text && !streaming && (
             <span className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={copy}
                 className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ink-400 transition hover:bg-white/5 hover:text-ink-100"
-                aria-label="Copy this answer"
+                aria-label={isUser ? "Copy this message" : "Copy this answer"}
               >
                 {copied ? <Check size={11} className="text-cyan-accent" /> : <Copy size={11} />}
                 {copied ? "Copied" : "Copy"}
@@ -264,6 +261,12 @@ export function MessageBubble({
   );
 }
 
+/** A message whose payload is a generated image rather than a chat answer. */
+function isMediaMessage(message: StoredMessage): boolean {
+  const attachments = message.attachments ?? [];
+  return attachments.length > 0 && attachments.every((a) => a.generated);
+}
+
 /** Small image result card used for generated images. */
 export function GeneratedImageCard({ url, label }: { url: string; label?: string }) {
   return (
@@ -280,50 +283,6 @@ export function GeneratedImageCard({ url, label }: { url: string; label?: string
           <Download size={12} aria-hidden />
           Download
         </a>
-      </div>
-    </div>
-  );
-}
-
-/** Video result card: a real <video> element plus its render metadata. */
-export function GeneratedVideoCard({ video }: { video: VideoAsset }) {
-  const meta = [
-    video.durationSeconds ? `${Math.round(video.durationSeconds)}s` : null,
-    video.width && video.height ? `${video.width}×${video.height}` : null,
-    video.storyboardSource === "model" ? "storyboard written by a model" : video.storyboardSource === "prompt" ? "storyboard from your prompt" : null,
-  ].filter(Boolean) as string[];
-
-  return (
-    <div className="mt-3 inline-block max-w-full overflow-hidden rounded-xl border border-white/12 bg-midnight-950/60">
-      {video.pending || !video.url ? (
-        <div className="flex items-center gap-2 px-4 py-3 text-xs text-ink-300">
-          <Film size={13} aria-hidden />
-          The render is still running on JSON2Video. Send the message again to fetch it.
-        </div>
-      ) : (
-        <video
-          src={video.url}
-          controls
-          preload="metadata"
-          playsInline
-          className="max-h-[28rem] w-auto max-w-full bg-black object-contain"
-        />
-      )}
-      <div className="flex items-center justify-between gap-3 px-3 py-2">
-        <span className="text-xs text-ink-400">
-          {meta.length > 0 ? meta.join(" · ") : "Rendered video"}
-        </span>
-        {video.url && (
-          <a
-            href={video.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-white/12 px-2.5 py-1 text-xs text-ink-200 transition hover:border-electric-400/60 hover:text-white"
-          >
-            <Download size={12} aria-hidden />
-            Download
-          </a>
-        )}
       </div>
     </div>
   );

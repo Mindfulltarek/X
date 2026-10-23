@@ -33,39 +33,25 @@ catalogue, keeps the capability metadata, and routes requests to a model that ca
 > **Changing configuration requires a redeploy.** Environment variables are read at boot; Vercel will
 > prompt you to redeploy after you edit them. Cached model catalogues live in memory only.
 
-### Video generation (optional, separate service)
-
-Video is rendered by [JSON2Video](https://json2video.com), not by a chat model. Add:
-
-| Name | Value |
-| --- | --- |
-| `JSON2VIDEO_API_KEY` | the key from json2video.com → Dashboard → API Keys |
-
-### Image and video through the other services (optional)
+### Image services (optional)
 
 Each row is independent: add the key(s) for the services you actually subscribed to, then redeploy.
-Settings → *Image generation* / *Video generation* lists every service with `ready` / `no key`, and
-`GET /api/generate-image` / `GET /api/generate-video` return the same list as `providers[]`.
+Settings → *Image generation* lists every service with `ready` / `no key`, and
+`GET /api/generate-image` returns the same list as `providers[]`.
 
 | Service | Variable(s) | Enables |
 | --- | --- | --- |
 | Google AI Studio ([aistudio.google.com/api-keys](https://aistudio.google.com/api-keys)) | `GEMINI_API_KEY` | image (`AI_GEMINI_IMAGE_MODEL`, default `gemini-2.5-flash-image`) |
-| xAI ([console.x.ai](https://console.x.ai)) | `XAI_API_KEY` | image (`AI_XAI_IMAGE_MODEL`) **and** video (`AI_XAI_VIDEO_MODEL`) |
-| Kie.ai ([kie.ai/api-key](https://kie.ai/api-key)) | `KIE_API_KEY` | image (`AI_KIE_IMAGE_MODEL`, default `flux1-kontext`) and video (**`AI_KIE_VIDEO_MODEL` required**) |
-| Wiro.ai ([wiro.ai/panel/project](https://wiro.ai/panel/project)) | `WIRO_API_KEY` (+ `WIRO_API_SECRET`) | image (`AI_WIRO_IMAGE_MODEL`) and video (**`AI_WIRO_VIDEO_MODEL` required**), both `owner/model` slugs |
+| xAI ([console.x.ai](https://console.x.ai)) | `XAI_API_KEY` | image (`AI_XAI_IMAGE_MODEL`) |
+| Kie.ai ([kie.ai/api-key](https://kie.ai/api-key)) | `KIE_API_KEY` | image (`AI_KIE_IMAGE_MODEL`, default `flux1-kontext`) |
+| Wiro.ai ([wiro.ai/panel/project](https://wiro.ai/panel/project)) | `WIRO_API_KEY` (+ `WIRO_API_SECRET`) | image (`AI_WIRO_IMAGE_MODEL`, a required `owner/model` slug) |
 | Groq ([console.groq.com/keys](https://console.groq.com/keys)) | `GROQ_API_KEY` | image *understanding* (vision) in chat |
-| JSON2Video | `JSON2VIDEO_API_KEY` | storyboard → MP4 rendering |
 
-`KIE_API_KEY` is reused if it is already set in the project. Which service answers first is
-controlled by `AI_IMAGE_PROVIDERS=google,xai,kie,wiro` and `AI_VIDEO_PROVIDERS=json2video,xai,kie,wiro`
-(first configured + successful one wins; the rest are fallbacks). Wiro and Kie publish hundreds of
-models, so their video ids are never guessed — leave the variable empty and that lane simply reports
-"not configured".
-
-Optionally `AI_VIDEO_RESOLUTION=hd|full-hd|squared|instagram-story|…` and
-`AI_VIDEO_MAX_SECONDS=20`. Without the key the feature reports **Not configured** in Settings and
-`POST /api/generate-video` returns `501` — nothing is faked. Rendering is asynchronous, so a render
-that outlives the request returns `202` with a `project` id instead of a video.
+Which service answers first is controlled by `AI_IMAGE_PROVIDERS=google,xai,kie,wiro` (the first
+configured + successful one wins; the rest are fallbacks). Wiro publishes hundreds of models, so its
+model id is never guessed — leave it empty and that backend simply reports "not configured".
+Without any key the feature reports **Not configured** in Settings and `POST /api/generate-image`
+returns `501` — nothing is faked.
 
 ## 3. Optional variables
 
@@ -75,11 +61,8 @@ that outlives the request returns `202` with a `project` id instead of a video.
 | `AI_COLLABORATION=review` | second-opinion pass by a different model on a different provider |
 | `AI_MAX_CANDIDATES`, `AI_MAX_MODELS_PER_REQUEST` | routing caps (defaults 4 / 3) |
 | `AI_IMAGE_MODEL` | pin the image-generation model |
-| `JSON2VIDEO_API_KEY` | enables video rendering (json2video.com → API Keys) |
-| `GEMINI_API_KEY`, `XAI_API_KEY`, `KIE_API_KEY`, `WIRO_API_KEY` | extra image/video services (see above) |
-| `AI_IMAGE_PROVIDERS`, `AI_VIDEO_PROVIDERS` | comma-ordered backend preference |
-| `AI_VIDEO_RESOLUTION`, `AI_VIDEO_MAX_SECONDS` | video size and length cap (default `hd`, 20 s) |
-| `AI_VIDEO_ENABLED=0` | switch video off while keeping the key |
+| `GEMINI_API_KEY`, `XAI_API_KEY`, `KIE_API_KEY`, `WIRO_API_KEY` | image services (see above) |
+| `AI_IMAGE_PROVIDERS` | comma-ordered image backend preference |
 | `AI_DISABLE_PRESETS=1` | ignore the preset `*_API_KEY` variables |
 | `AI_SYSTEM_SUFFIX` | extra instruction appended to every system prompt |
 | `AI_REQUEST_TIMEOUT_MS`, `AI_STREAM_TIMEOUT_MS`, `AI_DISCOVERY_TIMEOUT_MS` | timeouts (60 s / 120 s / 12 s) |

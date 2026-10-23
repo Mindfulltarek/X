@@ -5,20 +5,17 @@
  * API keys and gateway configuration are NEVER stored in the browser.
  */
 
-import type { OperationMode } from "@/lib/types";
 
 const KEY = "x-ai:settings:v1";
 
 export interface LocalSettings {
   model: string;
-  mode: OperationMode;
   sidebarCollapsed: boolean;
   lastChatId?: string;
 }
 
 export const DEFAULT_SETTINGS: LocalSettings = {
   model: "auto",
-  mode: "chat",
   sidebarCollapsed: false,
 };
 
@@ -30,7 +27,6 @@ export function readSettings(): LocalSettings {
     const parsed = JSON.parse(raw) as Partial<LocalSettings>;
     return {
       model: typeof parsed.model === "string" && parsed.model ? parsed.model : DEFAULT_SETTINGS.model,
-      mode: parsed.mode === "image-to-prompt" ? "image-to-prompt" : "chat",
       sidebarCollapsed: Boolean(parsed.sidebarCollapsed),
       lastChatId: typeof parsed.lastChatId === "string" ? parsed.lastChatId : undefined,
     };
